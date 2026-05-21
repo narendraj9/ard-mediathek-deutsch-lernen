@@ -208,51 +208,181 @@ function setupNavigationDetection() {
     observers.push(urlObserver);
 }
 
-// --- Vocabulary Overlay ---
+// --- Vocabulary Overlay (Shadow DOM for style isolation) ---
+
+let vocabHost = null; // the host element on the page
+let vocabShadow = null; // the shadow root
+let vocabPanel = null; // the inner panel div
+
+const VOCAB_STYLES = `
+    :host {
+        position: fixed;
+        top: 10%;
+        right: 20px;
+        z-index: 999999;
+        display: none;
+    }
+    #panel {
+        display: flex;
+        flex-direction: column;
+        width: 320px;
+        max-height: 70vh;
+        background: rgba(15, 15, 20, 0.55);
+        border: none;
+        border-radius: 10px;
+        color: #e0e0e0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-size: 14px;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+        overflow: hidden;
+        resize: both;
+        min-width: 200px;
+        min-height: 150px;
+    }
+    #header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 14px;
+        background: rgba(255, 255, 255, 0.06);
+        cursor: grab;
+        user-select: none;
+        font-weight: 600;
+        font-size: 13px;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+        color: #aaa;
+    }
+    #header:active { cursor: grabbing; }
+    #buttons { display: flex; gap: 4px; }
+    #buttons button {
+        background: none;
+        border: none;
+        color: #888;
+        font-size: 18px;
+        cursor: pointer;
+        padding: 2px 6px;
+        border-radius: 4px;
+        line-height: 1;
+    }
+    #buttons button:hover {
+        color: #fff;
+        background: rgba(255, 255, 255, 0.1);
+    }
+    #content {
+        overflow-y: auto;
+        scrollbar-width: none;
+        padding: 8px;
+        flex: 1;
+    }
+    #content::-webkit-scrollbar { display: none; }
+    .loading {
+        padding: 20px 14px;
+        color: #888;
+        text-align: center;
+        font-style: italic;
+    }
+    .error { color: #e57373; }
+    .card {
+        padding: 10px 12px;
+    }
+    .word {
+        font-size: 16px;
+        font-weight: 600;
+        color: #fff;
+        margin-bottom: 3px;
+    }
+    .type {
+        font-size: 11px;
+        font-weight: 400;
+        color: #7eb8da;
+        margin-left: 4px;
+    }
+    .meaning {
+        color: #f0c674;
+        font-size: 13px;
+        margin-bottom: 6px;
+    }
+    .example { font-size: 12px; line-height: 1.4; }
+    .example-de { color: #ccc; font-style: italic; }
+    .example-en { color: #bbb; margin-top: 2px; text-shadow: 0 1px 2px rgba(0,0,0,0.6); }
+    .api-key-form { padding: 14px; }
+    .api-key-form p { margin: 0 0 8px; color: #ccc; font-size: 13px; }
+    .api-hint { color: #888; font-size: 12px; }
+    .api-key-form input {
+        width: 100%;
+        padding: 8px;
+        border: none;
+        border-radius: 5px;
+        background: rgba(255, 255, 255, 0.08);
+        color: #e0e0e0;
+        font-size: 13px;
+        box-sizing: border-box;
+        margin-bottom: 8px;
+    }
+    .api-key-form input:focus { outline: none; }
+    .api-key-form button {
+        width: 100%;
+        padding: 8px;
+        background: rgba(126, 184, 218, 0.2);
+        border: none;
+        border-radius: 5px;
+        color: #7eb8da;
+        cursor: pointer;
+        font-size: 13px;
+    }
+    .api-key-form button:hover { background: rgba(126, 184, 218, 0.3); }
+`;
 
 function createVocabOverlay() {
-    let overlay = document.getElementById('vocab-overlay');
-    if (overlay) return overlay;
+    if (vocabHost) return vocabHost;
 
-    overlay = document.createElement('div');
-    overlay.id = 'vocab-overlay';
-    overlay.innerHTML = `
-        <div id="vocab-overlay-header">
-            <span>Vocabulary</span>
-            <div id="vocab-overlay-buttons">
-                <button id="vocab-close" title="Close (C-x C-x)">&times;</button>
+    vocabHost = document.createElement('div');
+    vocabHost.id = 'vocab-overlay-host';
+    vocabShadow = vocabHost.attachShadow({ mode: 'open' });
+
+    vocabShadow.innerHTML = `
+        <style>${VOCAB_STYLES}</style>
+        <div id="panel">
+            <div id="header">
+                <span>Vocabulary</span>
+                <div id="buttons">
+                    <button id="close" title="Close (C-x C-x)">&times;</button>
+                </div>
+            </div>
+            <div id="content">
+                <div class="loading">Waiting for subtitles...</div>
             </div>
         </div>
-        <div id="vocab-overlay-content">
-            <div class="vocab-loading">Waiting for subtitles...</div>
-        </div>
     `;
-    document.body.appendChild(overlay);
+    document.body.appendChild(vocabHost);
+    vocabPanel = vocabShadow.getElementById('panel');
 
-    // Drag logic
-    const header = overlay.querySelector('#vocab-overlay-header');
+    // Drag logic on host element
+    const header = vocabShadow.getElementById('header');
     let dragging = false, offsetX, offsetY;
     header.addEventListener('mousedown', (e) => {
         if (e.target.tagName === 'BUTTON') return;
         dragging = true;
-        offsetX = e.clientX - overlay.getBoundingClientRect().left;
-        offsetY = e.clientY - overlay.getBoundingClientRect().top;
+        const rect = vocabHost.getBoundingClientRect();
+        offsetX = e.clientX - rect.left;
+        offsetY = e.clientY - rect.top;
         e.preventDefault();
     });
     document.addEventListener('mousemove', (e) => {
         if (!dragging) return;
-        overlay.style.right = 'auto';
-        overlay.style.left = (e.clientX - offsetX) + 'px';
-        overlay.style.top = (e.clientY - offsetY) + 'px';
+        vocabHost.style.right = 'auto';
+        vocabHost.style.left = (e.clientX - offsetX) + 'px';
+        vocabHost.style.top = (e.clientY - offsetY) + 'px';
     });
     document.addEventListener('mouseup', () => { dragging = false; });
 
-    overlay.querySelector('#vocab-close').addEventListener('click', () => {
-        overlay.style.display = 'none';
+    vocabShadow.getElementById('close').addEventListener('click', () => {
+        vocabHost.style.display = 'none';
         vocabOverlayVisible = false;
     });
 
-    return overlay;
+    return vocabHost;
 }
 
 // Schedule a rate-limited vocab fetch when new subtitles arrive
@@ -270,8 +400,9 @@ function scheduleVocabFetch() {
 async function fetchVocabWords() {
     if (vocabFetching) return;
     if (subtitleBuffer.length === 0) return;
+    if (!vocabShadow) return;
 
-    const content = document.querySelector('#vocab-overlay-content');
+    const content = vocabShadow.getElementById('content');
     if (!content) return;
 
     // Get API key
@@ -323,53 +454,53 @@ async function fetchVocabWords() {
 
 function showApiKeyForm(content) {
     content.innerHTML = `
-        <div class="vocab-api-key-form">
+        <div class="api-key-form">
             <p>Enter your Groq API key to fetch vocabulary:</p>
-            <p class="vocab-api-hint">Get a free key at console.groq.com</p>
-            <input type="text" id="vocab-api-key-input" placeholder="gsk_..." />
-            <button id="vocab-api-key-save">Save</button>
+            <p class="api-hint">Get a free key at console.groq.com</p>
+            <input type="text" placeholder="gsk_..." />
+            <button>Save</button>
         </div>
     `;
-    content.querySelector('#vocab-api-key-save').addEventListener('click', async () => {
-        const key = content.querySelector('#vocab-api-key-input').value.trim();
+    content.querySelector('button').addEventListener('click', async () => {
+        const key = content.querySelector('input').value.trim();
         if (key) {
             await browser.storage.local.set({ groqApiKey: key });
-            content.innerHTML = '<div class="vocab-loading">Waiting for subtitles...</div>';
+            content.innerHTML = '<div class="loading">Waiting for subtitles...</div>';
             scheduleVocabFetch();
         }
     });
 }
 
 function renderVocabWords() {
-    const content = document.querySelector('#vocab-overlay-content');
+    if (!vocabShadow) return;
+    const content = vocabShadow.getElementById('content');
     if (!content) return;
 
     if (vocabWords.length === 0) {
-        content.innerHTML = '<div class="vocab-loading">Waiting for subtitles...</div>';
+        content.innerHTML = '<div class="loading">Waiting for subtitles...</div>';
         return;
     }
 
     content.innerHTML = vocabWords.map(w => `
-        <div class="vocab-card">
-            <div class="vocab-word">${w.word} <span class="vocab-type">${w.type}</span></div>
-            <div class="vocab-meaning">${w.meaning}</div>
-            <div class="vocab-example">
-                <div class="vocab-example-de">${w.example_de}</div>
-                <div class="vocab-example-en">${w.example_en}</div>
+        <div class="card">
+            <div class="word">${w.word} <span class="type">${w.type}</span></div>
+            <div class="meaning">${w.meaning}</div>
+            <div class="example">
+                <div class="example-de">${w.example_de}</div>
+                <div class="example-en">${w.example_en}</div>
             </div>
         </div>
     `).join('');
 }
 
 function toggleVocabOverlay() {
-    const overlay = createVocabOverlay();
+    createVocabOverlay();
     vocabOverlayVisible = !vocabOverlayVisible;
-    overlay.style.display = vocabOverlayVisible ? 'flex' : 'none';
+    vocabHost.style.display = vocabOverlayVisible ? 'block' : 'none';
     if (vocabOverlayVisible) {
         if (vocabWords.length > 0) {
             renderVocabWords();
         }
-        // Trigger fetch if there are unsent subtitles
         scheduleVocabFetch();
     }
 }
@@ -409,11 +540,20 @@ document.addEventListener('keydown', (e) => {
 });
 
 function adjustVocabOpacity(delta) {
-    const overlay = document.getElementById('vocab-overlay');
-    if (!overlay) return;
+    if (!vocabPanel) return;
     vocabOpacity = Math.min(1, Math.max(0.1, vocabOpacity + delta));
-    overlay.style.backgroundColor = `rgba(15, 15, 20, ${vocabOpacity})`;
+    vocabPanel.style.backgroundColor = `rgba(15, 15, 20, ${vocabOpacity})`;
 }
+
+// Reparent overlay into/out of fullscreen element
+document.addEventListener('fullscreenchange', () => {
+    if (!vocabHost) return;
+    if (document.fullscreenElement) {
+        document.fullscreenElement.appendChild(vocabHost);
+    } else {
+        document.body.appendChild(vocabHost);
+    }
+});
 
 // Initialize extension when page loads
 if (document.readyState === 'loading') {
