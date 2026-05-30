@@ -10,7 +10,7 @@ let currentUrl = window.location.href;
 
 // Vocabulary overlay state
 let subtitleBuffer = [];
-let lastSentBufferLength = 0; // track what we've already sent to Groq
+let unsentSubtitles = [];
 let vocabOverlayVisible = false;
 let vocabWords = []; // accumulated vocab words
 let vocabFetchTimeout = null;
@@ -137,6 +137,7 @@ function storeSubtitle(originalP) {
     // Accumulate subtitles for vocabulary overlay
     if (!subtitleBuffer.includes(text)) {
         subtitleBuffer.push(text);
+        unsentSubtitles.push(text);
         if (subtitleBuffer.length > 50) subtitleBuffer.shift();
         scheduleVocabFetch();
     }
@@ -389,10 +390,10 @@ function createVocabOverlay() {
 
 // Schedule a rate-limited vocab fetch when new subtitles arrive
 function scheduleVocabFetch() {
-    dbg("scheduleVocabFetch", { vocabOverlayVisible, vocabFetching, bufLen: subtitleBuffer.length, lastSent: lastSentBufferLength });
+    dbg("scheduleVocabFetch", { vocabOverlayVisible, vocabFetching, unsent: unsentSubtitles.length });
     if (!vocabOverlayVisible) return;
     if (vocabFetching) return;
-    if (subtitleBuffer.length <= lastSentBufferLength) return;
+    if (unsentSubtitles.length === 0) return;
 
     clearTimeout(vocabFetchTimeout);
     const elapsed = Date.now() - lastVocabFetchTime;
@@ -426,10 +427,8 @@ async function fetchVocabWords() {
 
     vocabFetching = true;
     lastVocabFetchTime = Date.now();
-    // Send only new subtitles since last fetch
-    const newSubtitles = subtitleBuffer.slice(lastSentBufferLength);
-    const subtitleText = newSubtitles.join('\n');
-    lastSentBufferLength = subtitleBuffer.length;
+    const subtitleText = unsentSubtitles.join('\n');
+    unsentSubtitles = [];
 
     try {
         const response = await browser.runtime.sendMessage({
