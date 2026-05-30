@@ -1,0 +1,31 @@
+{
+  "name": "bilingual-ard",
+  "version": "1.0.0",
+  "description": "This Firefox extension translates subtitles on ARD Mediathek videos from German to English and displays them above the original subtitles when the video is paused.",
+  "main": "background.js",
+  "directories": {
+    "doc": "doc"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "web-ext run --source-dir .",
+    "build": "web-ext build --source-dir . --overwrite-dest",
+    "lint": "web-ext lint --source-dir ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/futurk/bilingual-ard.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/futurk/bilingual-ard/issues"
+  },
+  "homepage": "https://github.com/futurk/bilingual-ard#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "web-ext": "^8.4.0"
+  }
+}

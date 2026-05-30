@@ -1,3 +1,8 @@
+// Debug logging — toggle from console: bilingualDebug(true)
+let _debugEnabled = false;
+window.bilingualDebug = (on) => { _debugEnabled = on; console.log(`[bilingual-ard] debug ${on ? 'ON' : 'OFF'}`); };
+function dbg(...args) { if (_debugEnabled) console.log('[bilingual-ard]', ...args); }
+
 // Global variables to manage extension state
 let translationCache = new Map(); // Cache translations to avoid redundant API calls
 let observers = []; // Keep track of all observers for cleanup
@@ -306,32 +311,7 @@ const VOCAB_STYLES = `
     .example { font-size: 12px; line-height: 1.4; }
     .example-de { color: #ccc; font-style: italic; }
     .example-en { color: #bbb; margin-top: 2px; text-shadow: 0 1px 2px rgba(0,0,0,0.6); }
-    .api-key-form { padding: 14px; }
-    .api-key-form p { margin: 0 0 8px; color: #ccc; font-size: 13px; }
-    .api-hint { color: #888; font-size: 12px; }
-    .api-key-form input {
-        width: 100%;
-        padding: 8px;
-        border: none;
-        border-radius: 5px;
-        background: rgba(255, 255, 255, 0.08);
-        color: #e0e0e0;
-        font-size: 13px;
-        box-sizing: border-box;
-        margin-bottom: 8px;
-    }
-    .api-key-form input:focus { outline: none; }
-    .api-key-form button {
-        width: 100%;
-        padding: 8px;
-        background: rgba(126, 184, 218, 0.2);
-        border: none;
-        border-radius: 5px;
-        color: #7eb8da;
-        cursor: pointer;
-        font-size: 13px;
-    }
-    .api-key-form button:hover { background: rgba(126, 184, 218, 0.3); }
+    .no-key { padding: 14px; color: #aaa; font-size: 13px; text-align: center; }
 `;
 
 function createVocabOverlay() {
@@ -387,6 +367,7 @@ function createVocabOverlay() {
 
 // Schedule a rate-limited vocab fetch when new subtitles arrive
 function scheduleVocabFetch() {
+    dbg("scheduleVocabFetch", { vocabOverlayVisible, vocabFetching, bufLen: subtitleBuffer.length, lastSent: lastSentBufferLength });
     if (!vocabOverlayVisible) return;
     if (vocabFetching) return;
     if (subtitleBuffer.length <= lastSentBufferLength) return;
@@ -405,12 +386,14 @@ async function fetchVocabWords() {
     const content = vocabShadow.getElementById('content');
     if (!content) return;
 
-    // Get API key
-    let apiKey;
+    // Get provider and API key
+    let provider, apiKey;
     try {
-        const result = await browser.storage.local.get('groqApiKey');
-        apiKey = result.groqApiKey;
+        const result = await browser.storage.local.get(['vocabProvider', 'vocabApiKeys']);
+        provider = result.vocabProvider || 'cerebras';
+        apiKey = (result.vocabApiKeys || {})[provider];
     } catch (e) {
+        provider = 'cerebras';
         apiKey = null;
     }
 
@@ -430,7 +413,8 @@ async function fetchVocabWords() {
         const response = await browser.runtime.sendMessage({
             type: 'fetchVocab',
             subtitleText,
-            apiKey
+            apiKey,
+            provider
         });
         if (response.success && response.words.length > 0) {
             // Prepend new words, dedup by word text
@@ -452,19 +436,47 @@ async function fetchVocabWords() {
     }
 }
 
-function showApiKeyForm(content) {
+async function showApiKeyForm(content) {
+    const stored = await browser.storage.local.get(['vocabProvider', 'vocabApiKeys']);
+    const currentProvider = stored.vocabProvider || 'cerebras';
+    const apiKeys = stored.vocabApiKeys || {};
+
     content.innerHTML = `
         <div class="api-key-form">
-            <p>Enter your Groq API key to fetch vocabulary:</p>
-            <p class="api-hint">Get a free key at console.groq.com</p>
-            <input type="text" placeholder="gsk_..." />
+            <p>Select provider:</p>
+            <select id="provider-select">
+                <option value="cerebras" ${currentProvider === 'cerebras' ? 'selected' : ''}>Cerebras</option>
+                <option value="groq" ${currentProvider === 'groq' ? 'selected' : ''}>Groq</option>
+            </select>
+            <p style="margin-top: 8px;">API key:</p>
+            <input type="text" id="api-key-input" placeholder="Enter API key..." value="${apiKeys[currentProvider] || ''}" />
+            <p class="api-hint" id="api-hint"></p>
             <button>Save</button>
         </div>
     `;
+
+    const hints = {
+        cerebras: 'Get a free key at cloud.cerebras.ai',
+        groq: 'Get a free key at console.groq.com'
+    };
+
+    const select = content.querySelector('#provider-select');
+    const input = content.querySelector('#api-key-input');
+    const hint = content.querySelector('#api-hint');
+
+    hint.textContent = hints[select.value];
+
+    select.addEventListener('change', () => {
+        input.value = apiKeys[select.value] || '';
+        hint.textContent = hints[select.value];
+    });
+
     content.querySelector('button').addEventListener('click', async () => {
-        const key = content.querySelector('input').value.trim();
+        const key = input.value.trim();
+        const provider = select.value;
         if (key) {
-            await browser.storage.local.set({ groqApiKey: key });
+            apiKeys[provider] = key;
+            await browser.storage.local.set({ vocabProvider: provider, vocabApiKeys: apiKeys });
             content.innerHTML = '<div class="loading">Waiting for subtitles...</div>';
             scheduleVocabFetch();
         }

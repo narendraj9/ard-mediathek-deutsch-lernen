@@ -1,7 +1,17 @@
 console.log("ARD Mediathek Translator Extension Loaded");
 
-const GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
-const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
+const PROVIDERS = {
+    groq: {
+        name: "Groq",
+        endpoint: "https://api.groq.com/openai/v1/chat/completions",
+        model: "meta-llama/llama-4-scout-17b-16e-instruct",
+    },
+    cerebras: {
+        name: "Cerebras",
+        endpoint: "https://api.cerebras.ai/v1/chat/completions",
+        model: "gpt-oss-120b",
+    }
+};
 
 const VOCAB_SCHEMA = {
     type: "json_schema",
@@ -33,7 +43,10 @@ const VOCAB_SCHEMA = {
     }
 };
 
-async function fetchVocabFromSubtitles(subtitleText, apiKey) {
+async function fetchVocabFromSubtitles(subtitleText, apiKey, providerId) {
+    const provider = PROVIDERS[providerId];
+    if (!provider) throw new Error(`Unknown provider: ${providerId}`);
+
     const prompt = `You are a German language teacher for A2-level learners.
 
 Here is text from German TV subtitles the student is watching:
@@ -51,14 +64,14 @@ From this text, pick out words that an A2 learner would find difficult or intere
 Focus on words that are above basic A1 level but useful for an A2 learner.
 Skip very common words (und, ist, das, ich, er, sie, wir, haben, sein, etc.).`;
 
-    const response = await fetch(GROQ_ENDPOINT, {
+    const response = await fetch(provider.endpoint, {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${apiKey}`
         },
         body: JSON.stringify({
-            model: GROQ_MODEL,
+            model: provider.model,
             messages: [
                 { role: "system", content: "You are a helpful German language teaching assistant. Always respond with valid JSON only, no additional text." },
                 { role: "user", content: prompt }
@@ -71,7 +84,7 @@ Skip very common words (und, ist, das, ich, er, sie, wir, haben, sein, etc.).`;
 
     if (!response.ok) {
         const err = await response.text();
-        throw new Error(`Groq API error ${response.status}: ${err}`);
+        throw new Error(`${provider.name} API error ${response.status}: ${err}`);
     }
 
     const envelope = await response.json();
@@ -83,11 +96,10 @@ Skip very common words (und, ist, das, ich, er, sie, wir, haben, sein, etc.).`;
     return data.words;
 }
 
-browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
+browser.runtime.onMessage.addListener((request, sender) => {
     if (request.type === "fetchVocab") {
-        fetchVocabFromSubtitles(request.subtitleText, request.apiKey)
-            .then(words => sendResponse({ success: true, words }))
-            .catch(err => sendResponse({ success: false, error: err.message }));
-        return true;
+        return fetchVocabFromSubtitles(request.subtitleText, request.apiKey, request.provider)
+            .then(words => ({ success: true, words }))
+            .catch(err => ({ success: false, error: err.message }));
     }
 });
