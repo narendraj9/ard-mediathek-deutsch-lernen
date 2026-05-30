@@ -55,11 +55,32 @@ function cleanup() {
     observers = [];
 }
 
+// Apply font sizes from storage
+async function applyFontSizes() {
+    const result = await browser.storage.local.get(['subtitleFontSize', 'overlayFontSize']);
+    const subSize = result.subtitleFontSize || 22;
+    const overlaySize = result.overlayFontSize || 14;
+    document.documentElement.style.setProperty('--bilingual-subtitle-font-size', subSize + 'px');
+    if (vocabPanel) {
+        vocabPanel.style.setProperty('--overlay-font-size', overlaySize + 'px');
+    }
+}
+
+// Re-apply font sizes when settings change
+browser.storage.onChanged.addListener((changes) => {
+    if (changes.subtitleFontSize || changes.overlayFontSize) {
+        applyFontSizes();
+    }
+});
+
 // Main initialization function
 async function initializeExtension() {
     try {
         // Cleanup previous initialization
         cleanup();
+
+        // Apply font size settings
+        applyFontSizes();
 
         // Wait for subtitle container to be available
         const subtitleContainer = await waitForElement(".ardplayer-untertitel");
@@ -237,7 +258,7 @@ const VOCAB_STYLES = `
         border-radius: 10px;
         color: #e0e0e0;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        font-size: 14px;
+        font-size: var(--overlay-font-size, 14px);
         box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
         overflow: hidden;
         resize: both;
@@ -337,6 +358,7 @@ function createVocabOverlay() {
     `;
     document.body.appendChild(vocabHost);
     vocabPanel = vocabShadow.getElementById('panel');
+    applyFontSizes();
 
     // Drag logic on host element
     const header = vocabShadow.getElementById('header');
@@ -398,7 +420,7 @@ async function fetchVocabWords() {
     }
 
     if (!apiKey) {
-        showApiKeyForm(content);
+        showNoApiKeyMessage(content);
         return;
     }
 
@@ -436,51 +458,8 @@ async function fetchVocabWords() {
     }
 }
 
-async function showApiKeyForm(content) {
-    const stored = await browser.storage.local.get(['vocabProvider', 'vocabApiKeys']);
-    const currentProvider = stored.vocabProvider || 'cerebras';
-    const apiKeys = stored.vocabApiKeys || {};
-
-    content.innerHTML = `
-        <div class="api-key-form">
-            <p>Select provider:</p>
-            <select id="provider-select">
-                <option value="cerebras" ${currentProvider === 'cerebras' ? 'selected' : ''}>Cerebras</option>
-                <option value="groq" ${currentProvider === 'groq' ? 'selected' : ''}>Groq</option>
-            </select>
-            <p style="margin-top: 8px;">API key:</p>
-            <input type="text" id="api-key-input" placeholder="Enter API key..." value="${apiKeys[currentProvider] || ''}" />
-            <p class="api-hint" id="api-hint"></p>
-            <button>Save</button>
-        </div>
-    `;
-
-    const hints = {
-        cerebras: 'Get a free key at cloud.cerebras.ai',
-        groq: 'Get a free key at console.groq.com'
-    };
-
-    const select = content.querySelector('#provider-select');
-    const input = content.querySelector('#api-key-input');
-    const hint = content.querySelector('#api-hint');
-
-    hint.textContent = hints[select.value];
-
-    select.addEventListener('change', () => {
-        input.value = apiKeys[select.value] || '';
-        hint.textContent = hints[select.value];
-    });
-
-    content.querySelector('button').addEventListener('click', async () => {
-        const key = input.value.trim();
-        const provider = select.value;
-        if (key) {
-            apiKeys[provider] = key;
-            await browser.storage.local.set({ vocabProvider: provider, vocabApiKeys: apiKeys });
-            content.innerHTML = '<div class="loading">Waiting for subtitles...</div>';
-            scheduleVocabFetch();
-        }
-    });
+function showNoApiKeyMessage(content) {
+    content.innerHTML = '<div class="no-key">No API key configured.<br>Go to extension settings in about:addons.</div>';
 }
 
 function renderVocabWords() {

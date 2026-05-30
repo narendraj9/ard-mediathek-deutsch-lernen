@@ -13,7 +13,7 @@
     }
     h2 { margin: 0 0 16px; font-size: 18px; }
     label { display: block; font-weight: 600; margin: 12px 0 4px; }
-    select, input[type="text"] {
+    select, input[type="text"], input[type="number"] {
       width: 100%;
       padding: 8px;
       border: 1px solid #ccc;
@@ -53,6 +53,14 @@
   <label for="api-key">API Key</label>
   <input type="text" id="api-key" placeholder="Enter API key..." />
   <div class="hint" id="hint"></div>
+
+  <hr style="margin: 20px 0; border: none; border-top: 1px solid #ddd;">
+
+  <label for="subtitle-font-size">Subtitle translation font size (px)</label>
+  <input type="number" id="subtitle-font-size" min="10" max="48" value="22" />
+
+  <label for="overlay-font-size">Vocabulary overlay font size (px)</label>
+  <input type="number" id="overlay-font-size" min="8" max="32" value="14" />
 
   <button id="save">Save</button>
   <div class="status" id="status"></div>
