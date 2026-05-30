@@ -47,22 +47,30 @@ async function fetchVocabFromSubtitles(subtitleText, apiKey, providerId) {
     const provider = PROVIDERS[providerId];
     if (!provider) throw new Error(`Unknown provider: ${providerId}`);
 
-    const prompt = `You are a German language teacher for A2-level learners.
+    const prompt = `You are a German language teacher preparing a student for the Goethe-Zertifikat B1.
 
 Here is text from German TV subtitles the student is watching:
 ---
 ${subtitleText}
 ---
 
-From this text, pick out words that an A2 learner would find difficult or interesting to learn. For each word provide:
-- word: The word in canonical form (with article for nouns, e.g. "die Katze")
-- type: Gender (m/f/n) for nouns, or part of speech (verb/adj/adv) for others
-- meaning: English meaning
-- example_de: An example sentence from the subtitles above that uses this word
+Pick out words and expressions from this text that are relevant for a B1 learner, following the Goethe-Institut B1 Wortliste approach. For each word provide:
+- word: Canonical form — nouns with article and plural (e.g. "die Bedeutung, -en"), verbs with conjugation hints for irregulars (e.g. "anfangen, fängt an, fing an, hat angefangen")
+- type: Gender (m/f/n) for nouns, or part of speech (verb/adj/adv/konj/idiom) for others. For separable verbs, mark as "verb, trennbar"
+- meaning: English meaning. If the word has multiple meanings relevant here, list them separated by semicolons
+- example_de: A sentence from the subtitles above that uses this word, showing it in its natural context
 - example_en: English translation of that example sentence
 
-Focus on words that are above basic A1 level but useful for an A2 learner.
-Skip very common words (und, ist, das, ich, er, sie, wir, haben, sein, etc.).`;
+Prioritize:
+- Separable and inseparable prefix verbs (aufhören, bemerken, verstehen)
+- Subordinate clause connectors and conjunctions (obwohl, damit, falls, nachdem, sobald)
+- Abstract nouns common in everyday, work, and public life (die Erfahrung, die Meinung, die Bedeutung)
+- Compound nouns where the meaning isn't obvious from parts
+- Idiomatic expressions and colloquial usage from spoken German
+- Words with multiple meanings depending on context
+- Regional variants if present (mark with D/A/CH)
+
+Skip basic A1/A2 vocabulary the student already knows (common verbs like haben/sein/machen, basic nouns, numbers, colors, days, months).`;
 
     const response = await fetch(provider.endpoint, {
         method: "POST",
