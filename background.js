@@ -55,7 +55,7 @@ ${subtitleText}
 ---
 
 Pick out words and expressions from this text that are relevant for a B1 learner, following the Goethe-Institut B1 Wortliste approach. For each word provide:
-- word: Canonical form — nouns with article and plural (e.g. "die Bedeutung, -en"), verbs with conjugation hints for irregulars (e.g. "anfangen, fängt an, fing an, hat angefangen")
+- word: Canonical form — nouns MUST include der/die/das and plural suffix (e.g. "die Bedeutung, -en", "das Kohlfeld, -er", "der Versuch, -e"). NEVER omit the article. Verbs with conjugation hints for irregulars (e.g. "anfangen, fängt an, fing an, hat angefangen")
 - type: Gender (m/f/n) for nouns, or part of speech (verb/adj/adv/konj/idiom) for others. For separable verbs, mark as "verb, trennbar"
 - meaning: English meaning. If the word has multiple meanings relevant here, list them separated by semicolons
 - example_de: A sentence from the subtitles above that uses this word, showing it in its natural context

@@ -438,16 +438,7 @@ async function fetchVocabWords() {
             provider
         });
         if (response.success && response.words.length > 0) {
-            // Prepend new words, dedup by word text
-            const existingWords = new Set(vocabWords.map(w => w.word));
-            const newWords = [];
-            for (const w of response.words) {
-                if (!existingWords.has(w.word)) {
-                    newWords.push(w);
-                    existingWords.add(w.word);
-                }
-            }
-            vocabWords = [...newWords, ...vocabWords];
+            vocabWords = [...response.words, ...vocabWords];
             renderVocabWords();
         }
     } catch (err) {
