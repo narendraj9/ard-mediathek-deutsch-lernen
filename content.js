@@ -19,6 +19,9 @@ let lastVocabFetchTime = 0;
 let vocabOpacity = 0.55;
 let cxState = 'idle';
 let cxTimeout = null;
+let currentSubtitleTexts = new Set();
+let previousSubtitleTexts = new Set();
+let recentClearTimeout = null;
 
 // Utility function to wait for elements to appear in DOM
 function waitForElement(selector, timeout = 10000) {
@@ -87,6 +90,7 @@ async function initializeExtension() {
         
         // Create subtitle observer
         const observer = new MutationObserver(async (mutations) => {
+            let subtitlesChanged = false;
             for (const mutation of mutations) {
                 if (mutation.addedNodes.length) {
                     mutation.addedNodes.forEach(async (node) => {
@@ -98,11 +102,20 @@ async function initializeExtension() {
                             if (!node.dataset.translated) {
                                 node.dataset.translated = "true";
                                 storeSubtitle(node);
+                                subtitlesChanged = true;
                             }
                         }
                     });
                 }
+                if (mutation.removedNodes.length) {
+                    for (const node of mutation.removedNodes) {
+                        if (node.nodeType === 1 && node.matches && node.matches('.ardplayer-untertitel p')) {
+                            subtitlesChanged = true;
+                        }
+                    }
+                }
             }
+            if (subtitlesChanged) updateCurrentSubtitles();
         });
 
         observer.observe(subtitleContainer, { childList: true, subtree: true });
@@ -311,14 +324,27 @@ const VOCAB_STYLES = `
         font-style: italic;
     }
     .error { color: #e57373; }
-    .card {
-        padding: 10px 12px;
+    .group {
+        padding: 8px 12px;
+        border-left: 3px solid transparent;
+        transition: border-color 0.6s ease, background-color 0.6s ease;
     }
+    .group.active {
+        border-left-color: #4db6ac;
+        background: rgba(255, 255, 255, 0.04);
+    }
+    .group.recent {
+        border-left-color: rgba(77, 182, 172, 0.3);
+    }
+    .example { font-size: 12px; line-height: 1.4; margin-bottom: 6px; }
+    .example-de { color: #ccc; font-style: italic; }
+    .example-en { color: #bbb; margin-top: 2px; text-shadow: 0 1px 2px rgba(0,0,0,0.6); }
+    .entry { padding: 3px 0; }
     .word {
         font-size: 16px;
         font-weight: 600;
         color: #fff;
-        margin-bottom: 3px;
+        margin-bottom: 2px;
     }
     .type {
         font-size: 11px;
@@ -329,11 +355,7 @@ const VOCAB_STYLES = `
     .meaning {
         color: #f0c674;
         font-size: 13px;
-        margin-bottom: 6px;
     }
-    .example { font-size: 12px; line-height: 1.4; }
-    .example-de { color: #ccc; font-style: italic; }
-    .example-en { color: #bbb; margin-top: 2px; text-shadow: 0 1px 2px rgba(0,0,0,0.6); }
     .no-key { padding: 14px; color: #aaa; font-size: 13px; text-align: center; }
 `;
 
@@ -392,6 +414,53 @@ function createVocabOverlay() {
     return vocabHost;
 }
 
+// Track which subtitle is currently visible on screen
+function updateCurrentSubtitles() {
+    const ps = document.querySelectorAll('.ardplayer-untertitel p');
+    const newTexts = new Set();
+    ps.forEach(p => {
+        const t = p.innerText.trim().replace(/\n/g, ' ');
+        if (t) newTexts.add(t);
+    });
+    if (setsEqual(newTexts, currentSubtitleTexts)) return;
+
+    previousSubtitleTexts = currentSubtitleTexts;
+    currentSubtitleTexts = newTexts;
+
+    clearTimeout(recentClearTimeout);
+    recentClearTimeout = setTimeout(() => {
+        previousSubtitleTexts = new Set();
+        updateActiveHighlight();
+    }, 5000);
+
+    updateActiveHighlight();
+}
+
+function setsEqual(a, b) {
+    if (a.size !== b.size) return false;
+    for (const v of a) if (!b.has(v)) return false;
+    return true;
+}
+
+// Match a word's example sentence to the subtitle line it came from
+function findBestSourceLine(exampleDe, sourceLines) {
+    if (!exampleDe || !sourceLines || sourceLines.length === 0) return null;
+    let bestLine = null;
+    let bestScore = 0;
+    const exLower = exampleDe.toLowerCase();
+    for (const line of sourceLines) {
+        const words = line.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+        if (words.length === 0) continue;
+        const matchCount = words.filter(w => exLower.includes(w)).length;
+        const score = matchCount / words.length;
+        if (score > bestScore) {
+            bestScore = score;
+            bestLine = line;
+        }
+    }
+    return bestScore >= 0.4 ? bestLine : null;
+}
+
 // Schedule a rate-limited vocab fetch when new subtitles arrive
 function scheduleVocabFetch() {
     dbg("scheduleVocabFetch", { vocabOverlayVisible, vocabFetching, unsent: unsentSubtitles.length });
@@ -431,7 +500,8 @@ async function fetchVocabWords() {
 
     vocabFetching = true;
     lastVocabFetchTime = Date.now();
-    const subtitleText = unsentSubtitles.join('\n');
+    const batchLines = [...unsentSubtitles];
+    const subtitleText = batchLines.join('\n');
     unsentSubtitles = [];
 
     try {
@@ -442,7 +512,11 @@ async function fetchVocabWords() {
             provider
         });
         if (response.success && response.words.length > 0) {
-            vocabWords = [...response.words, ...vocabWords];
+            const taggedWords = response.words.map(w => ({
+                ...w,
+                _sourceLine: findBestSourceLine(w.example_de, batchLines)
+            }));
+            vocabWords = [...taggedWords, ...vocabWords];
             renderVocabWords();
         }
     } catch (err) {
@@ -456,6 +530,10 @@ function showNoApiKeyMessage(content) {
     content.innerHTML = '<div class="no-key">No API key configured.<br>Go to extension settings in about:addons.</div>';
 }
 
+function escapeAttr(s) {
+    return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function renderVocabWords() {
     if (!vocabShadow) return;
     const content = vocabShadow.getElementById('content');
@@ -466,16 +544,69 @@ function renderVocabWords() {
         return;
     }
 
-    content.innerHTML = vocabWords.map(w => `
-        <div class="card">
-            <div class="word">${w.word} <span class="type">${w.type}</span></div>
-            <div class="meaning">${w.meaning}</div>
-            <div class="example">
-                <div class="example-de">${w.example_de}</div>
-                <div class="example-en">${w.example_en}</div>
+    // Group words by example sentence (de+en pair)
+    const groups = [];
+    const groupIndex = new Map(); // example_de -> index in groups
+    for (const w of vocabWords) {
+        const key = w.example_de;
+        if (groupIndex.has(key)) {
+            groups[groupIndex.get(key)].words.push(w);
+        } else {
+            groupIndex.set(key, groups.length);
+            groups.push({ example_de: w.example_de, example_en: w.example_en, srcLine: w._sourceLine || '', words: [w] });
+        }
+    }
+
+    // Sort: active groups first, then recent, then rest
+    groups.sort((a, b) => {
+        const aActive = a.srcLine && currentSubtitleTexts.has(a.srcLine);
+        const bActive = b.srcLine && currentSubtitleTexts.has(b.srcLine);
+        if (aActive && !bActive) return -1;
+        if (!aActive && bActive) return 1;
+        const aRecent = a.srcLine && previousSubtitleTexts.has(a.srcLine);
+        const bRecent = b.srcLine && previousSubtitleTexts.has(b.srcLine);
+        if (aRecent && !bRecent) return -1;
+        if (!aRecent && bRecent) return 1;
+        return 0;
+    });
+
+    content.innerHTML = groups.map(g => {
+        const isActive = g.srcLine && currentSubtitleTexts.has(g.srcLine);
+        const isRecent = g.srcLine && previousSubtitleTexts.has(g.srcLine);
+        const cls = isActive ? 'group active' : isRecent ? 'group recent' : 'group';
+        const entries = g.words.map(w => `
+            <div class="entry">
+                <div class="word">${w.word} <span class="type">${w.type}</span></div>
+                <div class="meaning">${w.meaning}</div>
             </div>
-        </div>
-    `).join('');
+        `).join('');
+        return `
+            <div class="${cls}" data-source-line="${escapeAttr(g.srcLine)}">
+                <div class="example">
+                    <div class="example-de">${g.example_de}</div>
+                    <div class="example-en">${g.example_en}</div>
+                </div>
+                ${entries}
+            </div>
+        `;
+    }).join('');
+}
+
+// Toggle active/recent classes on existing groups without re-rendering
+function updateActiveHighlight() {
+    if (!vocabShadow) return;
+    const groups = vocabShadow.querySelectorAll('.group');
+    groups.forEach(group => {
+        const srcLine = group.getAttribute('data-source-line');
+        if (!srcLine) {
+            group.classList.remove('active', 'recent');
+            return;
+        }
+        const isActive = currentSubtitleTexts.has(srcLine);
+        const isRecent = previousSubtitleTexts.has(srcLine);
+        group.classList.toggle('active', isActive);
+        group.classList.toggle('recent', !isActive && isRecent);
+    });
 }
 
 function exportVocabToAnki() {
