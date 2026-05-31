@@ -296,6 +296,7 @@ const VOCAB_STYLES = `
         color: #fff;
         background: rgba(255, 255, 255, 0.1);
     }
+    #buttons button.export-btn { font-size: 14px; }
     #content {
         overflow-y: auto;
         scrollbar-width: none;
@@ -349,6 +350,7 @@ function createVocabOverlay() {
             <div id="header">
                 <span>Vocabulary</span>
                 <div id="buttons">
+                    <button id="export" class="export-btn" title="Export to Anki (TSV)">&#8615;</button>
                     <button id="close" title="Close (C-x C-x)">&times;</button>
                 </div>
             </div>
@@ -379,6 +381,8 @@ function createVocabOverlay() {
         vocabHost.style.top = (e.clientY - offsetY) + 'px';
     });
     document.addEventListener('mouseup', () => { dragging = false; });
+
+    vocabShadow.getElementById('export').addEventListener('click', exportVocabToAnki);
 
     vocabShadow.getElementById('close').addEventListener('click', () => {
         vocabHost.style.display = 'none';
@@ -472,6 +476,26 @@ function renderVocabWords() {
             </div>
         </div>
     `).join('');
+}
+
+function exportVocabToAnki() {
+    if (vocabWords.length === 0) return;
+
+    // TSV: Front (word + type) \t Back (meaning + examples)
+    const lines = vocabWords.map(w => {
+        const front = `${w.word} <i>(${w.type})</i>`;
+        const back = `${w.meaning}<br><br><i>${w.example_de}</i><br>${w.example_en}`;
+        return `${front}\t${back}`;
+    });
+    const tsv = lines.join('\n');
+
+    const blob = new Blob([tsv], { type: 'text/tab-separated-values' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `vocab-${new Date().toISOString().slice(0, 10)}.tsv`;
+    a.click();
+    URL.revokeObjectURL(url);
 }
 
 function toggleVocabOverlay() {
