@@ -24,6 +24,7 @@ let vocabFetching       = false;
 let lastVocabFetchTime  = 0;
 let vocabOpacity        = 0.55;
 let knownWords          = new Set();
+let vocabMatchCache     = new Map(); // subtitle text -> matched vocab words
 
 // Learning mode
 let inlineTranslationsEnabled = true;
@@ -325,9 +326,36 @@ function vocabBaseWord(word) {
         .trim();
 }
 
+// Common German function words to exclude from the legend
+const STOP_WORDS = new Set([
+    // Pronouns
+    'ich', 'du', 'er', 'sie', 'es', 'wir', 'ihr', 'mich', 'dich', 'ihm', 'uns', 'euch', 'ihnen',
+    'mein', 'dein', 'sein', 'unser', 'euer', 'meine', 'deine', 'seine', 'ihre', 'unsere', 'eure',
+    'dieser', 'diese', 'dieses', 'jener', 'jene', 'jenes', 'welcher', 'welche', 'welches',
+    // Articles
+    'der', 'die', 'das', 'ein', 'eine', 'einem', 'einen', 'einer', 'eines', 'dem', 'den', 'des',
+    // Prepositions
+    'in', 'an', 'auf', 'zu', 'von', 'mit', 'bei', 'nach', 'aus', 'um', 'über', 'unter', 'vor',
+    'zwischen', 'durch', 'für', 'gegen', 'ohne', 'bis', 'seit', 'während', 'wegen',
+    // Common verbs (should be caught by LLM prompt, but double-check)
+    'sein', 'haben', 'werden', 'bin', 'ist', 'sind', 'war', 'hatte', 'wird',
+    // Adverbs
+    'auch', 'noch', 'schon', 'nicht', 'nur', 'sehr', 'so', 'hier', 'da', 'dann', 'jetzt',
+    'mehr', 'weniger', 'immer', 'nie', 'oft', 'manchmal', 'ganz', 'gerade', 'etwa',
+    // Conjunctions
+    'und', 'oder', 'aber', 'denn', 'wenn', 'weil', 'dass', 'als', 'wie', 'ob', 'sondern',
+    // Question words
+    'wer', 'was', 'wo', 'wann', 'warum', 'wie', 'wohin', 'woher',
+    // Others
+    'ja', 'nein', 'doch', 'mal', 'man', 'es', 'alle', 'jeder', 'viel', 'wenig'
+]);
+
 function germanStem(word) {
     // Simple German stemming - remove common suffixes
     let stem = word.toLowerCase().trim();
+    
+    // Must be at least 5 chars before we start stemming (avoid matching short words)
+    if (stem.length < 5) return stem;
     
     // Remove ge- prefix (past participles)
     stem = stem.replace(/^ge/, '');
@@ -337,8 +365,8 @@ function germanStem(word) {
     stem = stem.replace(/(en|er|em|es|st|te|et|el|nd)$/, '');
     stem = stem.replace(/[tes]$/, '');
     
-    // Must be at least 3 chars to be useful
-    return stem.length >= 3 ? stem : word.toLowerCase();
+    // Require minimum stem length of 4 to avoid false matches
+    return stem.length >= 4 ? stem : word.toLowerCase();
 }
 
 function buildWordMap() {
@@ -348,7 +376,7 @@ function buildWordMap() {
     for (const w of vocabWords) {
         if (knownWords.has(w.word)) continue;
         const base = vocabBaseWord(w.word);
-        if (base.length > 2) {
+        if (base.length > 2 && !STOP_WORDS.has(base)) {
             map.set(base, w);
             const stem = germanStem(base);
             if (stem.length >= 3) stemMap.set(stem, w);
@@ -809,7 +837,7 @@ function getOrCreateLabelsOverlay() {
     return labelsHost;
 }
 
-function renderInlineLabels() {
+async function renderInlineLabels() {
     getOrCreateLabelsOverlay();
     const container = labelsShadow.getElementById('container');
     while (container.firstChild) container.removeChild(container.firstChild);
@@ -819,16 +847,62 @@ function renderInlineLabels() {
         return;
     }
 
-    // Show only vocab words that are visible in the current subtitle.
-    // This keeps the overlay small and synced with what you are reading now.
+    const subtitleText = currentSubtitleText();
+    if (!subtitleText) {
+        labelsHost.style.display = 'none';
+        return;
+    }
+
+    // Check cache first
+    let matchedWords = vocabMatchCache.get(subtitleText);
+    
+    if (!matchedWords) {
+        // Call LLM to determine which vocab words match
+        try {
+            const r = await browser.storage.local.get(['vocabProvider', 'vocabApiKeys']);
+            const provider = r.vocabProvider || 'cerebras';
+            const apiKey = (r.vocabApiKeys || {})[provider];
+            
+            if (apiKey && vocabWords.length > 0) {
+                const response = await browser.runtime.sendMessage({
+                    type: 'matchVocab',
+                    subtitleText,
+                    vocabWords,
+                    apiKey,
+                    provider
+                });
+                
+                if (response.success) {
+                    matchedWords = response.matches || [];
+                    vocabMatchCache.set(subtitleText, matchedWords);
+                    // Limit cache size
+                    if (vocabMatchCache.size > 20) {
+                        const firstKey = vocabMatchCache.keys().next().value;
+                        vocabMatchCache.delete(firstKey);
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('Vocab matching error:', err);
+            matchedWords = [];
+        }
+    }
+
+    if (!matchedWords || matchedWords.length === 0) {
+        labelsHost.style.display = 'none';
+        return;
+    }
+
+    // Render matched words
+    const matchedSet = new Set(matchedWords);
     const seen = new Set();
+    
     for (const w of vocabWords) {
+        if (!matchedSet.has(w.word)) continue;
         const base = vocabBaseWord(w.word);
         if (!base || seen.has(base)) continue;
         if (knownWords.has(w.word)) continue;
-        
-        const matchResult = vocabWordVisibleInCurrentSubtitle(w);
-        if (!matchResult) continue;
+        if (STOP_WORDS.has(base)) continue;
         seen.add(base);
 
         const meaning = shortMeaning(w.meaning);
@@ -836,8 +910,6 @@ function renderInlineLabels() {
 
         const entry = document.createElement('div');
         entry.className = 'bilingual-inline-label';
-        
-        // Color both exact and stem matches the same
         entry.style.color = getWordColor(w.word);
 
         const wordEl = document.createElement('b');
