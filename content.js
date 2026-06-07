@@ -394,13 +394,11 @@ function vocabWordVisibleInCurrentSubtitle(vocabWord) {
 }
 
 function highlightSubtitleWords() {
-    const { exactMap } = buildWordMap();
+    const { exactMap, stemMap } = buildWordMap();
 
     document.querySelectorAll('.ardplayer-untertitel p:not(.translated-subtitle)').forEach(p => {
         // Restore original text nodes from any previous highlight spans
         p.querySelectorAll('.vocab-highlight').forEach(span => {
-            // data-base-text holds the original matched word; fall back to last
-            // text-node child to avoid including any .vocab-meaning-above label text
             const original = span.dataset.baseText
                 || (span.lastChild && span.lastChild.nodeType === 3 ? span.lastChild.nodeValue : null)
                 || span.textContent;
@@ -408,14 +406,7 @@ function highlightSubtitleWords() {
         });
         p.normalize();
 
-        if (exactMap.size === 0) return;
-
-        const pattern = new RegExp(
-            '(?<![a-zA-ZÄÖÜäöüß])(' +
-            [...exactMap.keys()].map(escapeRegex).join('|') +
-            ')(?![a-zA-ZÄÖÜäöüß])',
-            'gi'
-        );
+        if (exactMap.size === 0 && stemMap.size === 0) return;
 
         // Collect text nodes first — never touch attribute values or tag names
         const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
@@ -425,36 +416,42 @@ function highlightSubtitleWords() {
 
         for (const textNode of textNodes) {
             const text = textNode.nodeValue;
-            pattern.lastIndex = 0;
-            if (!pattern.test(text)) continue;
-            pattern.lastIndex = 0;
-
+            const words = text.split(/(\s+|[.,!?;:"'()\[\]{}])/); // Split but keep delimiters
             const frag = document.createDocumentFragment();
-            let last = 0, m;
-            while ((m = pattern.exec(text)) !== null) {
-                if (m.index > last)
-                    frag.appendChild(document.createTextNode(text.slice(last, m.index)));
 
-                const entry = exactMap.get(m[0].toLowerCase());
+            for (const word of words) {
+                if (!word || /^\s+$/.test(word) || /^[.,!?;:"'()\[\]{}]+$/.test(word)) {
+                    // Whitespace or punctuation - keep as-is
+                    frag.appendChild(document.createTextNode(word));
+                    continue;
+                }
+
+                const cleanWord = word.toLowerCase();
+                let entry = exactMap.get(cleanWord);
+                
+                // Try stem match if no exact match
                 if (!entry) {
-                    frag.appendChild(document.createTextNode(m[0]));
+                    const wordStem = germanStem(cleanWord);
+                    if (wordStem.length >= 3) {
+                        entry = stemMap.get(wordStem);
+                    }
+                }
+
+                if (!entry) {
+                    frag.appendChild(document.createTextNode(word));
                 } else {
                     const span = document.createElement('span');
                     span.className         = 'vocab-highlight';
                     span.dataset.vocabWord = entry.word;
-                    span.dataset.baseText  = m[0];
+                    span.dataset.baseText  = word;
                     span.title             = entry.meaning;
                     if (inlineTranslationsEnabled) {
                         span.style.color = getWordColor(entry.word);
                     }
-                    span.appendChild(document.createTextNode(m[0]));
+                    span.appendChild(document.createTextNode(word));
                     frag.appendChild(span);
                 }
-                last = m.index + m[0].length;
             }
-            pattern.lastIndex = 0;
-            if (last < text.length)
-                frag.appendChild(document.createTextNode(text.slice(last)));
 
             textNode.parentNode.replaceChild(frag, textNode);
         }
@@ -840,13 +837,8 @@ function renderInlineLabels() {
         const entry = document.createElement('div');
         entry.className = 'bilingual-inline-label';
         
-        // Only color exact matches; stem matches stay default color
-        if (matchResult.match === 'exact') {
-            entry.style.color = getWordColor(w.word);
-        } else {
-            entry.style.color = '#999'; // Gray for stem matches
-            entry.style.opacity = '0.8';
-        }
+        // Color both exact and stem matches the same
+        entry.style.color = getWordColor(w.word);
 
         const wordEl = document.createElement('b');
         wordEl.textContent = base;
