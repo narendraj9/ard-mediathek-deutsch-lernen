@@ -417,6 +417,9 @@ function highlightSubtitleWords() {
             textNode.parentNode.replaceChild(frag, textNode);
         }
     });
+
+    // Keep the color legend in sync with the current visible subtitle.
+    renderInlineLabels();
 }
 
 // Delegated click: highlighted German word → open panel + scroll to entry

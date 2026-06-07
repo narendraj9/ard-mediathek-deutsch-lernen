@@ -26,7 +26,6 @@
         }
     ],
     "background": {
-        "service_worker": "background.js",
         "scripts": [
             "background.js"
         ]
@@ -37,7 +36,10 @@
     },
     "browser_specific_settings": {
         "gecko": {
-            "id": "bilingual-ard@futurk.me"
+            "id": "bilingual-ard@narendraj9.github.io",
+            "data_collection_permissions": {
+                "required": ["none"]
+            }
         }
     }
 }
