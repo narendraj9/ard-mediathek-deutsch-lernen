@@ -43,6 +43,13 @@ const VOCAB_SCHEMA = {
     }
 };
 
+function responseFormatForProvider(providerId) {
+    // Groq model support for `json_schema` varies by model. JSON mode is
+    // broadly supported and avoids 400s while still forcing a JSON object.
+    if (providerId === "groq") return { type: "json_object" };
+    return VOCAB_SCHEMA;
+}
+
 async function fetchVocabFromSubtitles(subtitleText, apiKey, providerId, knownWords = []) {
     const provider = PROVIDERS[providerId];
     if (!provider) throw new Error(`Unknown provider: ${providerId}`);
@@ -83,7 +90,10 @@ INCLUDE — genuinely B1-level:
 
 ${knownWords.length > 0 ? `Do NOT include these words which the student has already mastered: ${knownWords.join(', ')}.
 
-` : ''}If the subtitles contain mostly A1/A2 vocabulary and there is genuinely nothing worth extracting at B1 level, return an empty words array rather than padding with easy words.`;
+` : ''}Return a JSON object with exactly this shape:
+{"words":[{"word":"...","type":"...","meaning":"...","example_de":"...","example_en":"..."}]}
+
+If the subtitles contain mostly A1/A2 vocabulary and there is genuinely nothing worth extracting at B1 level, return {"words":[]} rather than padding with easy words.`;
 
     const response = await fetch(provider.endpoint, {
         method: "POST",
@@ -99,7 +109,7 @@ ${knownWords.length > 0 ? `Do NOT include these words which the student has alre
             ],
             temperature: 0.4,
             max_tokens: 1200,
-            response_format: VOCAB_SCHEMA
+            response_format: responseFormatForProvider(providerId)
         })
     });
 
