@@ -9,6 +9,7 @@ const hintEl           = document.getElementById('hint');
 const statusEl         = document.getElementById('status');
 const subtitleFontSize = document.getElementById('subtitle-font-size');
 const overlayFontSize  = document.getElementById('overlay-font-size');
+const legendFontSize   = document.getElementById('legend-font-size');
 const learningModeEl   = document.getElementById('learning-mode');
 const thinkTimeEl      = document.getElementById('think-time');
 const autoHideDelayEl  = document.getElementById('auto-hide-delay');
@@ -20,7 +21,7 @@ let apiKeys = {};
 async function load() {
     const result = await browser.storage.local.get([
         'vocabProvider', 'vocabApiKeys',
-        'subtitleFontSize', 'overlayFontSize',
+        'subtitleFontSize', 'overlayFontSize', 'legendFontSize',
         'learningMode', 'thinkTime', 'autoHideDelay', 'knownWords'
     ]);
 
@@ -32,6 +33,7 @@ async function load() {
     hintEl.textContent     = hints[provider];
     subtitleFontSize.value = result.subtitleFontSize || 22;
     overlayFontSize.value  = result.overlayFontSize  || 14;
+    legendFontSize.value   = result.legendFontSize   || 22;
 
     learningModeEl.checked  = result.learningMode  !== undefined ? result.learningMode  : true;
     thinkTimeEl.value       = result.thinkTime     !== undefined ? result.thinkTime     : 2;
@@ -61,6 +63,7 @@ document.getElementById('save').addEventListener('click', async () => {
         vocabApiKeys:     apiKeys,
         subtitleFontSize: parseInt(subtitleFontSize.value) || 22,
         overlayFontSize:  parseInt(overlayFontSize.value)  || 14,
+        legendFontSize:   parseInt(legendFontSize.value)   || 22,
         learningMode:     learningModeEl.checked,
         thinkTime:        parseFloat(thinkTimeEl.value)    || 0,
         autoHideDelay:    parseFloat(autoHideDelayEl.value) || 0,

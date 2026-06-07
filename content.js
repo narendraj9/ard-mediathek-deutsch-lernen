@@ -40,7 +40,6 @@ let recallNeededSentences = new Set();
 let vocabHost     = null;
 let vocabShadow   = null;
 let vocabPanel    = null;
-let labelsOverlay = null;
 let labelsDragged = false;
 
 // Help overlay DOM
@@ -72,7 +71,7 @@ function getWordColor(vocabWord) {
 
 async function loadSettings() {
     const result = await browser.storage.local.get([
-        'subtitleFontSize', 'overlayFontSize',
+        'subtitleFontSize', 'overlayFontSize', 'legendFontSize',
         'learningMode', 'thinkTime', 'autoHideDelay', 'knownWords',
         'inlineTranslationsEnabled'
     ]);
@@ -86,16 +85,22 @@ async function loadSettings() {
 
 async function applyFontSizes(result) {
     if (!result) {
-        result = await browser.storage.local.get(['subtitleFontSize', 'overlayFontSize']);
+        result = await browser.storage.local.get(['subtitleFontSize', 'overlayFontSize', 'legendFontSize']);
     }
     const subSize     = result.subtitleFontSize || 22;
     const overlaySize = result.overlayFontSize  || 14;
+    const legendSize  = result.legendFontSize   || 22;
     document.documentElement.style.setProperty('--bilingual-subtitle-font-size', subSize + 'px');
+    document.documentElement.style.setProperty('--bilingual-legend-font-size', legendSize + 'px');
     if (vocabPanel) vocabPanel.style.setProperty('--overlay-font-size', overlaySize + 'px');
+    if (labelsShadow) {
+        const container = labelsShadow.getElementById('container');
+        if (container) container.style.setProperty('--legend-font-size', legendSize + 'px');
+    }
 }
 
 browser.storage.onChanged.addListener((changes) => {
-    if (changes.subtitleFontSize || changes.overlayFontSize) applyFontSizes();
+    if (changes.subtitleFontSize || changes.overlayFontSize || changes.legendFontSize) applyFontSizes();
     if (changes.learningMode  !== undefined) learningMode  = changes.learningMode.newValue;
     if (changes.thinkTime     !== undefined) thinkTime     = changes.thinkTime.newValue;
     if (changes.autoHideDelay !== undefined) autoHideDelay = changes.autoHideDelay.newValue;
@@ -698,41 +703,85 @@ function toggleInlineTranslations() {
 
 // ── Inline translation labels (fixed overlay, never touches subtitle DOM) ────
 
-function getOrCreateLabelsOverlay() {
-    if (labelsOverlay) return labelsOverlay;
-    labelsOverlay = document.createElement('div');
-    labelsOverlay.id = 'bilingual-labels-overlay';
-    document.body.appendChild(labelsOverlay);
+const LABELS_STYLES = `
+    :host {
+        position: fixed;
+        display: flex;
+        z-index: 999997;
+    }
+    #container {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px 32px;
+        padding: 16px 32px;
+        background: rgba(0, 0, 0, 0.75);
+        border-radius: 12px;
+        max-width: 90vw;
+        cursor: grab;
+        user-select: none;
+    }
+    #container:active { cursor: grabbing; }
+    .bilingual-inline-label {
+        font-size: var(--legend-font-size, 22px);
+        line-height: 1.5;
+        white-space: nowrap;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .bilingual-inline-label b { font-weight: 700; }
+`;
 
+let labelsHost   = null;
+let labelsShadow = null;
+
+function getOrCreateLabelsOverlay() {
+    if (labelsHost) return labelsHost;
+    
+    labelsHost = document.createElement('div');
+    labelsHost.id = 'bilingual-labels-host';
+    labelsShadow = labelsHost.attachShadow({ mode: 'open' });
+    
+    labelsShadow.innerHTML = `
+        <style>${LABELS_STYLES}</style>
+        <div id="container"></div>
+    `;
+    
+    document.body.appendChild(labelsHost);
+
+    const container = labelsShadow.getElementById('container');
     let dragging = false, offsetX = 0, offsetY = 0;
-    labelsOverlay.addEventListener('mousedown', (e) => {
+    
+    container.addEventListener('mousedown', (e) => {
         dragging = true;
-        const rect = labelsOverlay.getBoundingClientRect();
+        const rect = labelsHost.getBoundingClientRect();
         offsetX = e.clientX - rect.left;
         offsetY = e.clientY - rect.top;
         // Switch from bottom-anchor to top-anchor so drag works naturally
-        labelsOverlay.style.top       = rect.top + 'px';
-        labelsOverlay.style.bottom    = 'auto';
-        labelsOverlay.style.transform = 'none';
+        labelsHost.style.top       = rect.top + 'px';
+        labelsHost.style.bottom    = 'auto';
+        labelsHost.style.transform = 'none';
         e.preventDefault();
     });
+    
     document.addEventListener('mousemove', (e) => {
         if (!dragging) return;
         labelsDragged = true;
-        labelsOverlay.style.left = (e.clientX - offsetX) + 'px';
-        labelsOverlay.style.top  = (e.clientY - offsetY) + 'px';
+        labelsHost.style.left = (e.clientX - offsetX) + 'px';
+        labelsHost.style.top  = (e.clientY - offsetY) + 'px';
     });
+    
     document.addEventListener('mouseup', () => { dragging = false; });
 
-    return labelsOverlay;
+    return labelsHost;
 }
 
 function renderInlineLabels() {
-    const overlay = getOrCreateLabelsOverlay();
-    while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
+    getOrCreateLabelsOverlay();
+    const container = labelsShadow.getElementById('container');
+    while (container.firstChild) container.removeChild(container.firstChild);
 
     if (!inlineTranslationsEnabled || !vocabWords.length) {
-        overlay.style.display = 'none';
+        labelsHost.style.display = 'none';
         return;
     }
 
@@ -759,21 +808,21 @@ function renderInlineLabels() {
         meaningEl.textContent = '\u2009\u2192\u2009' + meaning;
         entry.appendChild(wordEl);
         entry.appendChild(meaningEl);
-        overlay.appendChild(entry);
+        container.appendChild(entry);
     }
 
-    if (!overlay.childElementCount) {
-        overlay.style.display = 'none';
+    if (!container.childElementCount) {
+        labelsHost.style.display = 'none';
         return;
     }
 
-    overlay.style.display = 'flex';
+    labelsHost.style.display = 'flex';
 
     if (!labelsDragged) {
-        overlay.style.left      = Math.round(window.innerWidth / 2) + 'px';
-        overlay.style.bottom    = '130px';
-        overlay.style.top       = 'auto';
-        overlay.style.transform = 'translateX(-50%)';
+        labelsHost.style.left      = Math.round(window.innerWidth / 2) + 'px';
+        labelsHost.style.bottom    = '130px';
+        labelsHost.style.top       = 'auto';
+        labelsHost.style.transform = 'translateX(-50%)';
     }
 }
 
@@ -1053,7 +1102,10 @@ document.addEventListener('keydown', (e) => {
 function adjustVocabOpacity(delta) {
     vocabOpacity = Math.min(1, Math.max(0.1, vocabOpacity + delta));
     if (vocabPanel)    vocabPanel.style.backgroundColor    = `rgba(15, 15, 20, ${vocabOpacity})`;
-    if (labelsOverlay) labelsOverlay.style.backgroundColor = `rgba(0, 0, 0, ${vocabOpacity})`;
+    if (labelsHost) {
+        const container = labelsShadow.getElementById('container');
+        if (container) container.style.backgroundColor = `rgba(0, 0, 0, ${vocabOpacity})`;
+    }
 }
 
 // ── Help overlay ─────────────────────────────────────────────────────────────────
@@ -1310,13 +1362,15 @@ function toggleHelpOverlay() {
 
 document.addEventListener('fullscreenchange', () => {
     if (document.fullscreenElement) {
-        if (vocabHost)     document.fullscreenElement.appendChild(vocabHost);
-        if (helpHost)      document.fullscreenElement.appendChild(helpHost);
-        if (labelsOverlay) document.fullscreenElement.appendChild(labelsOverlay);
+        if (vocabHost)   document.fullscreenElement.appendChild(vocabHost);
+        if (helpHost)    document.fullscreenElement.appendChild(helpHost);
+        if (labelsHost)  document.fullscreenElement.appendChild(labelsHost);
+        // Re-apply font sizes to ensure CSS variables work in fullscreen
+        applyFontSizes();
     } else {
-        if (vocabHost)     document.body.appendChild(vocabHost);
-        if (helpHost)      document.body.appendChild(helpHost);
-        if (labelsOverlay) document.body.appendChild(labelsOverlay);
+        if (vocabHost)   document.body.appendChild(vocabHost);
+        if (helpHost)    document.body.appendChild(helpHost);
+        if (labelsHost)  document.body.appendChild(labelsHost);
     }
     renderInlineLabels();
 });
