@@ -9,7 +9,7 @@ const PROVIDERS = {
     cerebras: {
         name: "Cerebras",
         endpoint: "https://api.cerebras.ai/v1/chat/completions",
-        model: "llama-3.3-70b",
+        model: "gpt-oss-120b",
     }
 };
 
@@ -117,65 +117,10 @@ ${knownWords.length > 0 ? `Do NOT include these words which the student has alre
     return data.words;
 }
 
-async function matchVocabToSubtitle(subtitleText, vocabWords, apiKey, providerId) {
-    const provider = PROVIDERS[providerId];
-    if (!provider) throw new Error(`Unknown provider: ${providerId}`);
-
-    const vocabList = vocabWords.map(w => w.word).join(', ');
-
-    const prompt = `Current German subtitle line:
-"${subtitleText}"
-
-Vocabulary list (canonical forms):
-${vocabList}
-
-Which vocabulary words from the list appear in the subtitle line, considering German morphology and inflections?
-For example, if the subtitle contains "nachgedacht" and the vocab list has "nachdenken", that's a match.
-
-Return ONLY a JSON array of the matching canonical forms from the vocab list. Example:
-["das Wort", "nachdenken", "die Bedeutung, -en"]
-
-If no vocab words match, return an empty array: []`;
-
-    const response = await fetch(provider.endpoint, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-            model: provider.model,
-            messages: [
-                { role: "system", content: "You are a helpful German language assistant. Always respond with valid JSON only." },
-                { role: "user", content: prompt }
-            ],
-            temperature: 0.2,
-            max_tokens: 200
-        })
-    });
-
-    if (!response.ok) {
-        const err = await response.text();
-        throw new Error(`${provider.name} API error ${response.status}: ${err}`);
-    }
-
-    const envelope = await response.json();
-    const text = envelope.choices?.[0]?.message?.content;
-    if (!text) throw new Error("Unexpected API response shape");
-
-    const matches = JSON.parse(text);
-    return Array.isArray(matches) ? matches : [];
-}
-
 browser.runtime.onMessage.addListener((request, sender) => {
     if (request.type === "fetchVocab") {
         return fetchVocabFromSubtitles(request.subtitleText, request.apiKey, request.provider, request.knownWords || [])
             .then(words => ({ success: true, words }))
-            .catch(err => ({ success: false, error: err.message }));
-    }
-    if (request.type === "matchVocab") {
-        return matchVocabToSubtitle(request.subtitleText, request.vocabWords, request.apiKey, request.provider)
-            .then(matches => ({ success: true, matches }))
             .catch(err => ({ success: false, error: err.message }));
     }
 });

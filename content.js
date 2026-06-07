@@ -24,7 +24,6 @@ let vocabFetching       = false;
 let lastVocabFetchTime  = 0;
 let vocabOpacity        = 0.55;
 let knownWords          = new Set();
-let vocabMatchCache     = new Map(); // subtitle text -> matched vocab words
 
 // Learning mode
 let inlineTranslationsEnabled = true;
@@ -837,7 +836,7 @@ function getOrCreateLabelsOverlay() {
     return labelsHost;
 }
 
-async function renderInlineLabels() {
+function renderInlineLabels() {
     getOrCreateLabelsOverlay();
     const container = labelsShadow.getElementById('container');
     while (container.firstChild) container.removeChild(container.firstChild);
@@ -847,62 +846,19 @@ async function renderInlineLabels() {
         return;
     }
 
-    const subtitleText = currentSubtitleText();
-    if (!subtitleText) {
-        labelsHost.style.display = 'none';
-        return;
-    }
-
-    // Check cache first
-    let matchedWords = vocabMatchCache.get(subtitleText);
-    
-    if (!matchedWords) {
-        // Call LLM to determine which vocab words match
-        try {
-            const r = await browser.storage.local.get(['vocabProvider', 'vocabApiKeys']);
-            const provider = r.vocabProvider || 'cerebras';
-            const apiKey = (r.vocabApiKeys || {})[provider];
-            
-            if (apiKey && vocabWords.length > 0) {
-                const response = await browser.runtime.sendMessage({
-                    type: 'matchVocab',
-                    subtitleText,
-                    vocabWords,
-                    apiKey,
-                    provider
-                });
-                
-                if (response.success) {
-                    matchedWords = response.matches || [];
-                    vocabMatchCache.set(subtitleText, matchedWords);
-                    // Limit cache size
-                    if (vocabMatchCache.size > 20) {
-                        const firstKey = vocabMatchCache.keys().next().value;
-                        vocabMatchCache.delete(firstKey);
-                    }
-                }
-            }
-        } catch (err) {
-            console.error('Vocab matching error:', err);
-            matchedWords = [];
-        }
-    }
-
-    if (!matchedWords || matchedWords.length === 0) {
-        labelsHost.style.display = 'none';
-        return;
-    }
-
-    // Render matched words
-    const matchedSet = new Set(matchedWords);
+    // Show only vocab words whose LLM example maps to a currently visible subtitle line.
+    // _sourceLine is assigned from the exact subtitle batch line when vocab is fetched.
     const seen = new Set();
     
     for (const w of vocabWords) {
-        if (!matchedSet.has(w.word)) continue;
         const base = vocabBaseWord(w.word);
         if (!base || seen.has(base)) continue;
         if (knownWords.has(w.word)) continue;
         if (STOP_WORDS.has(base)) continue;
+        
+        const matchLine = w._sourceLine || w.example_de;
+        if (!matchLine || !currentSubtitleTexts.has(matchLine)) continue;
+        
         seen.add(base);
 
         const meaning = shortMeaning(w.meaning);
@@ -1002,9 +958,18 @@ async function fetchVocabWords() {
             vocabWords = [...tagged, ...vocabWords];
             renderVocabWords();    // updates vocab panel and subtitle highlights
             renderInlineLabels();  // updates color legend overlay
+        } else if (!response.success) {
+            throw new Error(response.error || 'Unknown vocab API error');
         }
     } catch (err) {
         console.error("Vocab fetch error:", err);
+        unsentSubtitles = [...batchLines, ...unsentSubtitles];
+        if (vocabShadow) {
+            const content = vocabShadow.getElementById('content');
+            if (content && !vocabWords.length) {
+                content.textContent = `Vocabulary API error: ${err.message}`;
+            }
+        }
     } finally {
         vocabFetching = false;
     }
