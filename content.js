@@ -325,24 +325,37 @@ function vocabBaseWord(word) {
         .trim();
 }
 
+function germanStem(word) {
+    // Simple German stemming - remove common suffixes
+    let stem = word.toLowerCase().trim();
+    
+    // Remove ge- prefix (past participles)
+    stem = stem.replace(/^ge/, '');
+    
+    // Remove common verb/noun/adjective endings (longest first)
+    stem = stem.replace(/(ungen|ieren|schaft|keit|heit|ness|lich|isch|bar|sam|los)$/, '');
+    stem = stem.replace(/(en|er|em|es|st|te|et|el|nd)$/, '');
+    stem = stem.replace(/[tes]$/, '');
+    
+    // Must be at least 3 chars to be useful
+    return stem.length >= 3 ? stem : word.toLowerCase();
+}
+
 function buildWordMap() {
-    const map = new Map(); // lowercase base → vocab entry
+    const map = new Map(); // lowercase word → vocab entry
+    const stemMap = new Map(); // stem → vocab entry
+    
     for (const w of vocabWords) {
         if (knownWords.has(w.word)) continue;
         const base = vocabBaseWord(w.word);
-        if (base.length > 2) map.set(base, w);
-        
-        // Also add all inflected forms
-        if (w.inflections && Array.isArray(w.inflections)) {
-            for (const inflected of w.inflections) {
-                const inflectedClean = inflected.toLowerCase().trim();
-                if (inflectedClean.length > 2) {
-                    map.set(inflectedClean, w);
-                }
-            }
+        if (base.length > 2) {
+            map.set(base, w);
+            const stem = germanStem(base);
+            if (stem.length >= 3) stemMap.set(stem, w);
         }
     }
-    return map;
+    
+    return { exactMap: map, stemMap };
 }
 
 function currentSubtitleText() {
@@ -355,38 +368,33 @@ function currentSubtitleText() {
 }
 
 function vocabWordVisibleInCurrentSubtitle(vocabWord) {
+    const base = vocabBaseWord(vocabWord.word);
+    if (base.length <= 2) return false;
     const text = currentSubtitleText();
     if (!text) return false;
     
-    // Check base word
-    const base = vocabBaseWord(vocabWord.word);
-    if (base.length > 2) {
-        const pattern = new RegExp(
-            '(?<![a-zA-ZÄÖÜäöüß])' + escapeRegex(base) + '(?![a-zA-ZÄÖÜäöüß])',
+    // Check exact match
+    const exactPattern = new RegExp(
+        '(?<![a-zA-ZÄÖÜäöüß])' + escapeRegex(base) + '(?![a-zA-ZÄÖÜäöüß])',
+        'i'
+    );
+    if (exactPattern.test(text)) return { match: 'exact', word: base };
+    
+    // Check stem match
+    const stem = germanStem(base);
+    if (stem.length >= 3) {
+        const stemPattern = new RegExp(
+            '(?<![a-zA-ZÄÖÜäöüß])\\w*' + escapeRegex(stem) + '\\w*(?![a-zA-ZÄÖÜäöüß])',
             'i'
         );
-        if (pattern.test(text)) return true;
-    }
-    
-    // Check inflections
-    if (vocabWord.inflections && Array.isArray(vocabWord.inflections)) {
-        for (const inflected of vocabWord.inflections) {
-            const inflectedClean = inflected.trim();
-            if (inflectedClean.length > 2) {
-                const pattern = new RegExp(
-                    '(?<![a-zA-ZÄÖÜäöüß])' + escapeRegex(inflectedClean) + '(?![a-zA-ZÄÖÜäöüß])',
-                    'i'
-                );
-                if (pattern.test(text)) return true;
-            }
-        }
+        if (stemPattern.test(text)) return { match: 'stem', word: base };
     }
     
     return false;
 }
 
 function highlightSubtitleWords() {
-    const wordMap = buildWordMap();
+    const { exactMap } = buildWordMap();
 
     document.querySelectorAll('.ardplayer-untertitel p:not(.translated-subtitle)').forEach(p => {
         // Restore original text nodes from any previous highlight spans
@@ -400,11 +408,11 @@ function highlightSubtitleWords() {
         });
         p.normalize();
 
-        if (wordMap.size === 0) return;
+        if (exactMap.size === 0) return;
 
         const pattern = new RegExp(
             '(?<![a-zA-ZÄÖÜäöüß])(' +
-            [...wordMap.keys()].map(escapeRegex).join('|') +
+            [...exactMap.keys()].map(escapeRegex).join('|') +
             ')(?![a-zA-ZÄÖÜäöüß])',
             'gi'
         );
@@ -427,7 +435,7 @@ function highlightSubtitleWords() {
                 if (m.index > last)
                     frag.appendChild(document.createTextNode(text.slice(last, m.index)));
 
-                const entry = wordMap.get(m[0].toLowerCase());
+                const entry = exactMap.get(m[0].toLowerCase());
                 if (!entry) {
                     frag.appendChild(document.createTextNode(m[0]));
                 } else {
@@ -821,15 +829,24 @@ function renderInlineLabels() {
         const base = vocabBaseWord(w.word);
         if (!base || seen.has(base)) continue;
         if (knownWords.has(w.word)) continue;
-        if (!vocabWordVisibleInCurrentSubtitle(w)) continue;
+        
+        const matchResult = vocabWordVisibleInCurrentSubtitle(w);
+        if (!matchResult) continue;
         seen.add(base);
 
         const meaning = shortMeaning(w.meaning);
         if (!meaning) continue;
 
         const entry = document.createElement('div');
-        entry.className   = 'bilingual-inline-label';
-        entry.style.color = getWordColor(w.word);
+        entry.className = 'bilingual-inline-label';
+        
+        // Only color exact matches; stem matches stay default color
+        if (matchResult.match === 'exact') {
+            entry.style.color = getWordColor(w.word);
+        } else {
+            entry.style.color = '#999'; // Gray for stem matches
+            entry.style.opacity = '0.8';
+        }
 
         const wordEl = document.createElement('b');
         wordEl.textContent = base;
