@@ -43,7 +43,7 @@ const VOCAB_SCHEMA = {
     }
 };
 
-async function fetchVocabFromSubtitles(subtitleText, apiKey, providerId) {
+async function fetchVocabFromSubtitles(subtitleText, apiKey, providerId, knownWords = []) {
     const provider = PROVIDERS[providerId];
     if (!provider) throw new Error(`Unknown provider: ${providerId}`);
 
@@ -54,23 +54,36 @@ Here is text from German TV subtitles the student is watching:
 ${subtitleText}
 ---
 
-Pick out words and expressions from this text that are relevant for a B1 learner, following the Goethe-Institut B1 Wortliste approach. For each word provide:
-- word: Canonical form — nouns MUST include der/die/das and plural suffix (e.g. "die Bedeutung, -en", "das Kohlfeld, -er", "der Versuch, -e"). NEVER omit the article. Verbs with conjugation hints for irregulars (e.g. "anfangen, fängt an, fing an, hat angefangen")
-- type: Gender (m/f/n) for nouns, or part of speech (verb/adj/adv/konj/idiom) for others. For separable verbs, mark as "verb, trennbar"
-- meaning: English meaning. If the word has multiple meanings relevant here, list them separated by semicolons
-- example_de: A sentence from the subtitles above that uses this word, showing it in its natural context
-- example_en: English translation of that example sentence
+Extract vocabulary this B1 learner would genuinely benefit from. Be SELECTIVE — at most 6–8 items per batch, only words that would appear on a B1 exam or cause real comprehension difficulty. Quality over quantity.
 
-Prioritize:
-- Separable and inseparable prefix verbs (aufhören, bemerken, verstehen)
-- Subordinate clause connectors and conjunctions (obwohl, damit, falls, nachdem, sobald)
-- Abstract nouns common in everyday, work, and public life (die Erfahrung, die Meinung, die Bedeutung)
-- Compound nouns where the meaning isn't obvious from parts
-- Idiomatic expressions and colloquial usage from spoken German
-- Words with multiple meanings depending on context
-- Regional variants if present (mark with D/A/CH)
+For each word provide:
+- word: Canonical form — nouns MUST include der/die/das and plural suffix (e.g. "die Bedeutung, -en", "der Versuch, -e"). NEVER omit the article. Irregular verbs include conjugation hints (e.g. "anfangen, fängt an, fing an, hat angefangen")
+- type: Gender (m/f/n) for nouns, or part of speech (verb/adj/adv/konj/idiom) for others. Mark separable verbs as "verb, trennbar"
+- meaning: English meaning. Multiple senses separated by semicolons if relevant
+- example_de: The sentence from the subtitles above where this word appears
+- example_en: English translation of that sentence
 
-Skip basic A1/A2 vocabulary the student already knows (common verbs like haben/sein/machen, basic nouns, numbers, colors, days, months).`;
+SKIP — the student already knows all of these:
+- Core verbs: sein, haben, werden, gehen, kommen, sehen, sagen, machen, geben, nehmen, wissen, denken, fragen, heißen, kennen, spielen, leben, arbeiten, kaufen, wohnen, essen, trinken, schlafen, fahren, laufen, lesen, schreiben, hören, sprechen, helfen, brauchen, zeigen, suchen, finden, bleiben, lassen, bringen, stehen, liegen, sitzen
+- All modal verbs: können, müssen, dürfen, sollen, wollen, mögen, möchten
+- All question words, all pronouns, all articles, all prepositions
+- Basic adverbs: hier, dort, jetzt, heute, noch, auch, schon, wieder, sehr, immer, nie, oft, viel, wenig, gern, dann, jetzt, wirklich, natürlich, vielleicht, eigentlich, einfach (at A2 register)
+- Numbers, colors, days, months, seasons, clock expressions
+- Basic adjectives: gut, schlecht, groß, klein, alt, neu, jung, lang, kurz, schön, schnell, langsam, teuer, billig, wichtig, richtig, falsch, möglich, nötig, klar, gleich
+- Any word on the Goethe A1 or A2 Wortliste
+
+INCLUDE — genuinely B1-level:
+- Prefix and separable verbs where the meaning isn't obvious (sich entscheiden, aufhören, vorbereiten, vermeiden, sich vorstellen, herausfinden)
+- Subordinating conjunctions and modal particles that carry real nuance beyond A2 (obwohl, trotzdem, allerdings, nämlich, immerhin, ohnehin, ausgerechnet, zumindest, schließlich, jedenfalls)
+- Abstract nouns for emotions, relationships and social processes (die Enttäuschung, das Vertrauen, die Gelegenheit, der Zusammenhang, die Verantwortung)
+- Compound nouns where the combined meaning isn't obvious from the parts
+- Idiomatic or fixed collocations that can't be guessed word-for-word (es geht um, auf jeden Fall, das kommt darauf an, in der Lage sein)
+- False friends or deceptively familiar words used in a non-obvious way (bekommen, werden + adj, also)
+- Topic-specific vocabulary relevant to what is happening in this scene
+
+${knownWords.length > 0 ? `Do NOT include these words which the student has already mastered: ${knownWords.join(', ')}.
+
+` : ''}If the subtitles contain mostly A1/A2 vocabulary and there is genuinely nothing worth extracting at B1 level, return an empty words array rather than padding with easy words.`;
 
     const response = await fetch(provider.endpoint, {
         method: "POST",
@@ -84,8 +97,8 @@ Skip basic A1/A2 vocabulary the student already knows (common verbs like haben/s
                 { role: "system", content: "You are a helpful German language teaching assistant. Always respond with valid JSON only, no additional text." },
                 { role: "user", content: prompt }
             ],
-            temperature: 0.7,
-            max_tokens: 2048,
+            temperature: 0.4,
+            max_tokens: 1200,
             response_format: VOCAB_SCHEMA
         })
     });
@@ -106,7 +119,7 @@ Skip basic A1/A2 vocabulary the student already knows (common verbs like haben/s
 
 browser.runtime.onMessage.addListener((request, sender) => {
     if (request.type === "fetchVocab") {
-        return fetchVocabFromSubtitles(request.subtitleText, request.apiKey, request.provider)
+        return fetchVocabFromSubtitles(request.subtitleText, request.apiKey, request.provider, request.knownWords || [])
             .then(words => ({ success: true, words }))
             .catch(err => ({ success: false, error: err.message }));
     }
