@@ -331,6 +331,16 @@ function buildWordMap() {
         if (knownWords.has(w.word)) continue;
         const base = vocabBaseWord(w.word);
         if (base.length > 2) map.set(base, w);
+        
+        // Also add all inflected forms
+        if (w.inflections && Array.isArray(w.inflections)) {
+            for (const inflected of w.inflections) {
+                const inflectedClean = inflected.toLowerCase().trim();
+                if (inflectedClean.length > 2) {
+                    map.set(inflectedClean, w);
+                }
+            }
+        }
     }
     return map;
 }
@@ -345,15 +355,34 @@ function currentSubtitleText() {
 }
 
 function vocabWordVisibleInCurrentSubtitle(vocabWord) {
-    const base = vocabBaseWord(vocabWord.word);
-    if (base.length <= 2) return false;
     const text = currentSubtitleText();
     if (!text) return false;
-    const pattern = new RegExp(
-        '(?<![a-zA-ZÄÖÜäöüß])' + escapeRegex(base) + '(?![a-zA-ZÄÖÜäöüß])',
-        'i'
-    );
-    return pattern.test(text);
+    
+    // Check base word
+    const base = vocabBaseWord(vocabWord.word);
+    if (base.length > 2) {
+        const pattern = new RegExp(
+            '(?<![a-zA-ZÄÖÜäöüß])' + escapeRegex(base) + '(?![a-zA-ZÄÖÜäöüß])',
+            'i'
+        );
+        if (pattern.test(text)) return true;
+    }
+    
+    // Check inflections
+    if (vocabWord.inflections && Array.isArray(vocabWord.inflections)) {
+        for (const inflected of vocabWord.inflections) {
+            const inflectedClean = inflected.trim();
+            if (inflectedClean.length > 2) {
+                const pattern = new RegExp(
+                    '(?<![a-zA-ZÄÖÜäöüß])' + escapeRegex(inflectedClean) + '(?![a-zA-ZÄÖÜäöüß])',
+                    'i'
+                );
+                if (pattern.test(text)) return true;
+            }
+        }
+    }
+    
+    return false;
 }
 
 function highlightSubtitleWords() {

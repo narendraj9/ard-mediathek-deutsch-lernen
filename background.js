@@ -34,7 +34,11 @@ const VOCAB_SCHEMA = {
                             type: { type: "string" },
                             meaning: { type: "string" },
                             example_de: { type: "string" },
-                            example_en: { type: "string" }
+                            example_en: { type: "string" },
+                            inflections: { 
+                                type: "array",
+                                items: { type: "string" }
+                            }
                         }
                     }
                 }
@@ -62,6 +66,7 @@ For each word provide:
 - meaning: English meaning. Multiple senses separated by semicolons if relevant
 - example_de: The sentence from the subtitles above where this word appears
 - example_en: English translation of that sentence
+- inflections: (optional) Array of common inflected forms that appear in everyday speech. For verbs include 2-4 key forms (e.g. ["denkt", "dachte", "gedacht", "nachgedacht"] for "nachdenken"). For adjectives include common declensions if relevant (e.g. ["wichtigen", "wichtige", "wichtiger"]). For nouns include the plural if it's irregular or commonly used. Keep this list SHORT (2-5 items max) — only forms a learner would actually encounter.
 
 SKIP — the student already knows all of these:
 - Core verbs: sein, haben, werden, gehen, kommen, sehen, sagen, machen, geben, nehmen, wissen, denken, fragen, heißen, kennen, spielen, leben, arbeiten, kaufen, wohnen, essen, trinken, schlafen, fahren, laufen, lesen, schreiben, hören, sprechen, helfen, brauchen, zeigen, suchen, finden, bleiben, lassen, bringen, stehen, liegen, sitzen
