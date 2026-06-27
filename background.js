@@ -54,46 +54,59 @@ async function fetchVocabFromSubtitles(subtitleText, apiKey, providerId, knownWo
     const provider = PROVIDERS[providerId];
     if (!provider) throw new Error(`Unknown provider: ${providerId}`);
 
-    const prompt = `You are a German language teacher preparing a student for the Goethe-Zertifikat B1.
+    const prompt = `You are a German language teacher following Goethe-Institut teaching practices: focus on communicative understanding, context, and the words/phrases that help a learner grasp what is actually being said.
+
+You are helping an intermediate learner understand the meaning of German TV subtitle sentences.
 
 Here is text from German TV subtitles the student is watching:
 ---
 ${subtitleText}
 ---
 
-Extract vocabulary this B1 learner would genuinely benefit from. Be SELECTIVE — at most 6–8 items per batch, only words that would appear on a B1 exam or cause real comprehension difficulty. Quality over quantity.
+Your goal is NOT to list every teachable vocabulary item. Your goal is to help the learner understand the meaning of each sentence by showing the fewest, highest-value words or short phrases that unlock that meaning.
 
-For each word provide:
-- word: Canonical form — nouns MUST include der/die/das and plural suffix (e.g. "die Bedeutung, -en", "der Versuch, -e"). NEVER omit the article. Irregular verbs include conjugation hints (e.g. "anfangen, fängt an, fing an, hat angefangen")
-- type: Gender (m/f/n) for nouns, or part of speech (verb/adj/adv/konj/idiom) for others. Mark separable verbs as "verb, trennbar"
-- meaning: English meaning. Multiple senses separated by semicolons if relevant
-- example_de: The sentence from the subtitles above where this word appears
+First, read each subtitle sentence and ask: "Which unfamiliar word or phrase would unlock the sentence's meaning if the learner knew it?" Extract only those meaning-bearing items. Prefer the words that explain the action, cause, consequence, emotion, relationship, conflict, or key topic of the sentence.
+
+Be VERY SELECTIVE — at most 4–6 items per batch. Usually choose 0–2 items from any one sentence. Quality over quantity. If a word is common, generic, or not central to understanding the sentence, skip it even if it might be a useful vocabulary word in another context.
+
+For each item provide:
+- word: Canonical form or fixed phrase — nouns MUST include der/die/das and plural suffix (e.g. "die Bedeutung, -en", "der Versuch, -e"). NEVER omit the article. Irregular verbs include conjugation hints (e.g. "anfangen, fängt an, fing an, hat angefangen"). For idioms/collocations, give the useful phrase as it should be learned.
+- type: Gender (m/f/n) for nouns, or part of speech (verb/adj/adv/konj/idiom/phrase) for others. Mark separable verbs as "verb, trennbar"
+- meaning: English meaning in the context of this subtitle. Multiple senses separated by semicolons only if useful here
+- example_de: The full sentence from the subtitles above where this item appears
 - example_en: English translation of that sentence
 
-SKIP — the student already knows all of these:
-- Core verbs: sein, haben, werden, gehen, kommen, sehen, sagen, machen, geben, nehmen, wissen, denken, fragen, heißen, kennen, spielen, leben, arbeiten, kaufen, wohnen, essen, trinken, schlafen, fahren, laufen, lesen, schreiben, hören, sprechen, helfen, brauchen, zeigen, suchen, finden, bleiben, lassen, bringen, stehen, liegen, sitzen
+STRONG SELECTION RULES:
+- Include an item only if knowing it would substantially improve understanding of the whole sentence.
+- Prefer specific content words over generic words: precise verbs, abstract nouns, emotionally loaded adjectives/adverbs, compounds, technical/topic words, and fixed phrases.
+- Prefer phrases/collocations over single words when the phrase carries the real meaning (e.g. "es geht um", "in der Lage sein", "darauf kommt es an").
+- Include advanced words when they are necessary to understand the sentence. Do not reject a sentence-critical word because it is above the learner's nominal level; comprehension comes first.
+- Do not pad the list. Returning fewer words is better than returning weak words.
+
+SKIP — avoid very common or low-information words, including:
+- Core verbs unless used in a non-obvious idiom: sein, haben, werden, gehen, kommen, sehen, sagen, machen, geben, nehmen, wissen, denken, fragen, heißen, kennen, spielen, leben, arbeiten, kaufen, wohnen, essen, trinken, schlafen, fahren, laufen, lesen, schreiben, hören, sprechen, helfen, brauchen, zeigen, suchen, finden, bleiben, lassen, bringen, stehen, liegen, sitzen
 - All modal verbs: können, müssen, dürfen, sollen, wollen, mögen, möchten
-- All question words, all pronouns, all articles, all prepositions
-- Basic adverbs: hier, dort, jetzt, heute, noch, auch, schon, wieder, sehr, immer, nie, oft, viel, wenig, gern, dann, jetzt, wirklich, natürlich, vielleicht, eigentlich, einfach (at A2 register)
+- All question words, pronouns, articles, and ordinary prepositions
+- Basic adverbs/fillers: hier, dort, jetzt, heute, noch, auch, schon, wieder, sehr, immer, nie, oft, viel, wenig, gern, dann, wirklich, natürlich, vielleicht, eigentlich, einfach, mal, doch, ja, denn, wohl, halt, eben
 - Numbers, colors, days, months, seasons, clock expressions
 - Basic adjectives: gut, schlecht, groß, klein, alt, neu, jung, lang, kurz, schön, schnell, langsam, teuer, billig, wichtig, richtig, falsch, möglich, nötig, klar, gleich
-- Any word on the Goethe A1 or A2 Wortliste
+- Any A1/A2 word when it is used in its ordinary literal meaning and does not unlock the sentence
 
-INCLUDE — genuinely B1-level:
-- Prefix and separable verbs where the meaning isn't obvious (sich entscheiden, aufhören, vorbereiten, vermeiden, sich vorstellen, herausfinden)
-- Subordinating conjunctions and modal particles that carry real nuance beyond A2 (obwohl, trotzdem, allerdings, nämlich, immerhin, ohnehin, ausgerechnet, zumindest, schließlich, jedenfalls)
-- Abstract nouns for emotions, relationships and social processes (die Enttäuschung, das Vertrauen, die Gelegenheit, der Zusammenhang, die Verantwortung)
-- Compound nouns where the combined meaning isn't obvious from the parts
-- Idiomatic or fixed collocations that can't be guessed word-for-word (es geht um, auf jeden Fall, das kommt darauf an, in der Lage sein)
+GOOD CANDIDATES:
+- Precise or scene-critical verbs, especially prefix/separable/reflexive verbs where the meaning is not obvious (sich entscheiden, aufhören, vorbereiten, vermeiden, herausfinden, sich weigern, auftauchen)
+- Nouns that name the central issue, object, role, institution, event, emotion, or relationship in the sentence
+- Abstract nouns and concepts (die Enttäuschung, das Vertrauen, die Gelegenheit, der Zusammenhang, die Verantwortung, der Verdacht)
+- Compound nouns where the combined meaning is not obvious from the parts
+- Idiomatic or fixed collocations that cannot be guessed word-for-word
 - False friends or deceptively familiar words used in a non-obvious way (bekommen, werden + adj, also)
-- Topic-specific vocabulary relevant to what is happening in this scene
+- Topic-specific vocabulary needed to understand what is happening in this scene
 
 ${knownWords.length > 0 ? `Do NOT include these words which the student has already mastered: ${knownWords.join(', ')}.
 
 ` : ''}Return a JSON object with exactly this shape:
 {"words":[{"word":"...","type":"...","meaning":"...","example_de":"...","example_en":"..."}]}
 
-If the subtitles contain mostly A1/A2 vocabulary and there is genuinely nothing worth extracting at B1 level, return {"words":[]} rather than padding with easy words.`;
+If there are no words or phrases that genuinely unlock the meaning of a sentence, return {"words":[]} rather than padding with common or low-information words.`;
 
     const response = await fetch(provider.endpoint, {
         method: "POST",
