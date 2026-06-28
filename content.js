@@ -7,7 +7,16 @@ function dbg(...args) { if (_debugEnabled) console.log('[bilingual-ard]', ...arg
 
 let translationCache = new Map();
 let observers = [];
+let pauseObserverCleanup = null;
 let currentUrl = window.location.href;
+
+// Active site adapter (selected at init time)
+let site = null;
+
+function requireSite() {
+    if (!site) throw new Error('No site adapter active');
+    return site;
+}
 
 // Subtitle tracking
 let subtitleBuffer        = [];
@@ -149,14 +158,17 @@ function shortMeaning(s) {
 function cleanup() {
     observers.forEach(obs => obs.disconnect());
     observers = [];
+    if (pauseObserverCleanup) {
+        try { pauseObserverCleanup(); } catch (e) { /* ignore */ }
+        pauseObserverCleanup = null;
+    }
 }
 
 // ── Translation (learning-mode aware) ─────────────────────────────────────────
 
 function checkAndShowSubtitles() {
     try {
-        const btn      = document.querySelector(".ardplayer-button-playpause");
-        const isPaused = btn && btn.classList.contains("ardplayer-icon-play");
+        const isPaused = site && site.isPaused();
 
         if (!isPaused) {
             clearTimeout(hintTimeout);
@@ -184,8 +196,11 @@ function checkAndShowSubtitles() {
 }
 
 function showTranslationHint() {
-    const container = document.querySelector('.ardplayer-untertitel');
-    if (!container || !container.querySelectorAll('p').length) return;
+    const container = site && site.getHintContainer();
+    if (!container) return;
+    // Only show hint if there is at least one visible subtitle line.
+    const lines = site.getSubtitleLineElements();
+    if (!lines || !lines.length) return;
 
     if (!hintEl) {
         hintEl = document.createElement('div');
@@ -214,38 +229,32 @@ function revealTranslation() {
 }
 
 function hideTranslation() {
-    document.querySelectorAll('.translated-subtitle').forEach(el => { el.style.display = 'none'; });
+    if (site) {
+        site.getTranslationNodes().forEach(el => { el.style.display = 'none'; });
+    }
     translationVisible = false;
     clearTimeout(autoHideTimeout);
 }
 
 function showStoredSubtitle() {
     try {
-        const subtitleElements = document.querySelectorAll(".ardplayer-untertitel p:not(.translated-subtitle)");
+        if (!site) return;
+        const subtitleElements = site.getSubtitleLineElements();
         if (!subtitleElements.length) return;
 
-        subtitleElements.forEach((originalP) => {
-            if (!originalP.parentNode) return;
-            const text         = originalP.innerText.trim().replace(/\n/g, ' ');
+        subtitleElements.forEach((originalEl) => {
+            const text = site.getSubtitleText(originalEl);
             const translatedText = translationCache.get(text);
             if (!translatedText) return;
-
-            let translatedP = originalP.parentNode.querySelector(".translated-subtitle");
-            if (!translatedP) {
-                translatedP = document.createElement("p");
-                translatedP.className = "translated-subtitle";
-                originalP.parentNode.insertBefore(translatedP, originalP);
-            }
-            translatedP.innerText     = translatedText;
-            translatedP.style.display = "block";
+            site.showTranslation(originalEl, translatedText);
         });
     } catch (e) {
         console.error("Error in showStoredSubtitle:", e);
     }
 }
 
-function storeSubtitle(originalP) {
-    const text = originalP.innerText.trim().replace(/\n/g, ' ');
+function storeSubtitle(originalEl) {
+    const text = site.getSubtitleText(originalEl);
     if (!text) return;
 
     if (!subtitleBuffer.includes(text)) {
@@ -268,8 +277,9 @@ function storeSubtitle(originalP) {
 
 async function fetchTranslation(text) {
     try {
+        const sl = (site && site.sourceLang) || 'de';
         const response = await fetch(
-            "https://translate.googleapis.com/translate_a/single?client=gtx&sl=de&tl=en&dt=t&q=" +
+            `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sl}&tl=en&dt=t&q=` +
             encodeURIComponent(text)
         );
         const result = await response.json();
@@ -284,10 +294,11 @@ async function fetchTranslation(text) {
 // ── Subtitle tracking ─────────────────────────────────────────────────────────
 
 function updateCurrentSubtitles() {
-    const ps = document.querySelectorAll('.ardplayer-untertitel p:not(.translated-subtitle)');
+    if (!site) return;
+    const ps = site.getSubtitleLineElements();
     const newTexts = new Set();
     ps.forEach(p => {
-        const t = p.innerText.trim().replace(/\n/g, ' ');
+        const t = site.getSubtitleText(p);
         if (t) newTexts.add(t);
     });
     if (setsEqual(newTexts, currentSubtitleTexts)) return;
@@ -386,11 +397,13 @@ function buildWordMap() {
 }
 
 function currentSubtitleText() {
-    const fromDom = [...document.querySelectorAll('.ardplayer-untertitel p:not(.translated-subtitle)')]
-        .map(p => p.innerText.trim().replace(/\n/g, ' '))
-        .filter(Boolean)
-        .join(' ');
-    if (fromDom) return fromDom;
+    if (site) {
+        const fromDom = [...site.getSubtitleLineElements()]
+            .map(p => site.getSubtitleText(p))
+            .filter(Boolean)
+            .join(' ');
+        if (fromDom) return fromDom;
+    }
     return [...currentSubtitleTexts].join(' ');
 }
 
@@ -422,8 +435,9 @@ function vocabWordVisibleInCurrentSubtitle(vocabWord) {
 
 function highlightSubtitleWords() {
     const { exactMap, stemMap } = buildWordMap();
+    if (!site) { renderInlineLabels(); return; }
 
-    document.querySelectorAll('.ardplayer-untertitel p:not(.translated-subtitle)').forEach(p => {
+    site.getSubtitleLineElements().forEach(p => {
         // Restore original text nodes from any previous highlight spans
         p.querySelectorAll('.vocab-highlight').forEach(span => {
             const original = span.dataset.baseText
@@ -1160,8 +1174,7 @@ document.addEventListener('keydown', (e) => {
 
     // T — reveal translation when paused in learning mode
     if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === 't') {
-        const btn      = document.querySelector(".ardplayer-button-playpause");
-        const isPaused = btn && btn.classList.contains("ardplayer-icon-play");
+        const isPaused = site && site.isPaused();
         if (isPaused && learningMode && !translationVisible) {
             e.preventDefault();
             revealTranslation();
@@ -1479,33 +1492,40 @@ async function initializeExtension() {
         cleanup();
         await loadSettings();
 
-        const subtitleContainer = await waitForElement(".ardplayer-untertitel");
+        if (!window.BilingualSites) {
+            console.error('[bilingual] sites.js not loaded — aborting init');
+            return;
+        }
+        site = window.BilingualSites.getActiveAdapter();
+        if (!site) {
+            console.warn('[bilingual] No site adapter matches this page; aborting init');
+            return;
+        }
+
+        const subtitleContainer = await site.waitForReady(waitForElement);
 
         const observer = new MutationObserver(async (mutations) => {
             let changed = false;
             for (const mutation of mutations) {
                 if (mutation.type === 'characterData') {
-                    const p = mutation.target.parentElement && mutation.target.parentElement.closest('.ardplayer-untertitel p');
-                    const container = p && p.closest("[lang='de-DE'], [lang='de']");
-                    if (p && container) {
+                    const p = site.resolveSubtitleFromCharMut(mutation);
+                    if (p) {
                         storeSubtitle(p);
                         changed = true;
                     }
                 }
 
                 for (const node of mutation.addedNodes) {
-                    if (node.nodeType === 1 && node.matches(".ardplayer-untertitel p") && !node.classList.contains('translated-subtitle')) {
-                        const container = node.closest("[lang='de-DE'], [lang='de']");
-                        if (!container) continue;
-                        if (!node.dataset.translated) {
-                            node.dataset.translated = "true";
-                            storeSubtitle(node);
-                            changed = true;
-                        }
+                    const resolved = site.resolveSubtitleNode(node);
+                    if (!resolved) continue;
+                    if (!resolved.dataset.bilingualSeen) {
+                        resolved.dataset.bilingualSeen = 'true';
+                        storeSubtitle(resolved);
+                        changed = true;
                     }
                 }
                 for (const node of mutation.removedNodes) {
-                    if (node.nodeType === 1 && node.matches && node.matches('.ardplayer-untertitel p')) {
+                    if (site.isRemovedSubtitleNode(node)) {
                         changed = true;
                     }
                 }
@@ -1513,22 +1533,18 @@ async function initializeExtension() {
             if (changed) {
                 updateCurrentSubtitles();
                 if (vocabWords.length > 0) highlightSubtitleWords();
+                // Re-render translations into freshly-created containers (Netflix
+                // wipes & replaces them on every subtitle change).
+                checkAndShowSubtitles();
             }
         });
 
         observer.observe(subtitleContainer, { childList: true, subtree: true, characterData: true });
         observers.push(observer);
 
-        try {
-            const playPauseBtn = await waitForElement(".ardplayer-button-playpause", 5000);
-            const ppObs = new MutationObserver(checkAndShowSubtitles);
-            ppObs.observe(playPauseBtn, { attributes: true, attributeFilter: ["class"] });
-            observers.push(ppObs);
-        } catch (e) {
-            console.warn("Play/pause button not found, continuing without it:", e);
-        }
+        pauseObserverCleanup = await site.setupPauseObserver(waitForElement, checkAndShowSubtitles);
 
-        console.log(`Bilingual ARD initialized — learning mode: ${learningMode}`);
+        console.log(`[bilingual] initialized — site: ${site.name}, learning mode: ${learningMode}`);
     } catch (e) {
         console.error("Failed to initialize:", e);
         setTimeout(() => { console.log("Retrying…"); initializeExtension(); }, 2000);

@@ -1,8 +1,8 @@
 {
     "manifest_version": 3,
-    "name": "ARD Mediathek Subtitle Translator",
-    "version": "1.0",
-    "description": "Translates ARD Mediathek subtitles to English inside the video player.",
+    "name": "Bilingual Subtitles",
+    "version": "1.2",
+    "description": "Bilingual subtitle helper for language learners. Works on ARD Mediathek and Netflix.",
     "permissions": [
         "storage"
     ],
@@ -15,9 +15,16 @@
         {
             "matches": [
               "https://www.ardmediathek.de/video/*",
-              "https://www.ardmediathek.de/live/*"
+              "https://www.ardmediathek.de/live/*",
+              "https://www.netflix.com/watch/*",
+              "https://www3.stage.netflix.com/watch/*",
+              "https://www.youtube.com/*",
+              "https://m.youtube.com/*",
+              "https://www.arte.tv/*",
+              "https://www.zdf.de/*"
             ],
             "js": [
+                "sites.js",
                 "content.js"
             ],
             "css": [

@@ -1,4 +1,5 @@
-.translated-subtitle {
+.translated-subtitle,
+.bilingual-translated-subtitle {
     color: #f0c674;
     font-size: var(--bilingual-subtitle-font-size, 22px);
     text-align: center;

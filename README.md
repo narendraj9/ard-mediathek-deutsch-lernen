@@ -106,16 +106,17 @@ I love the content on ARD Mediathek, but as a German learner, I needed more than
 
 ## Known Limitations
 
-- **ARD Mediathek only**: Currently only works on `ardmediathek.de` video pages
-- **German subtitles required**: The extension detects subtitles with `lang="de-DE"` or `lang="de"`
-- **No offline mode**: Requires internet connection for translation and vocabulary extraction
+- **Currently supported sites**: ARD Mediathek (`ardmediathek.de`), Netflix (`netflix.com`), YouTube (`youtube.com`), Arte (`arte.tv`) and ZDF Mediathek (`zdf.de`). The Arte and ZDF selectors are best-effort and may need to be tweaked in `sites.js` against the live page; YouTube and Netflix have been built from observed DOM. New sites can be added by appending a `makeVideoSubtitleAdapter({...})` call in `sites.js`.
+- **German subtitles required**: The extension is currently wired for German → English. On ARD it detects subtitles with `lang="de-DE"` or `lang="de"`; on the other sites it assumes the user has selected German subtitles (these players don't expose a language attribute on their subtitle DOM).
+- **No offline mode**: Requires internet connection for translation and vocabulary extraction.
 
 ## Future Enhancements
 
-- Support for other German streaming platforms (ZDF, Arte, etc.)
-- Configurable vocabulary difficulty level (A2, B2, C1)
-- Spaced repetition integration (direct Anki-Connect sync)
-- User-configurable color palettes for highlights
+- Verify / refine Arte and ZDF subtitle selectors against the live sites (the bundled defaults are best-effort).
+- Per-site source-language detection so the same extension can handle other learning languages.
+- Configurable vocabulary difficulty level (A2, B2, C1).
+- Spaced repetition integration (direct Anki-Connect sync).
+- User-configurable color palettes for highlights.
 
 ## Contributing
 
